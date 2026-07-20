@@ -741,6 +741,12 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
     # --- Filtrar o DataFrame pelo período selecionado ---
     df_filtrado_df1 = df1[(df1['data'] >= periodo[0]) & (df1['data'] <= periodo[1])]
 
+    st.write("Colunas disponíveis em df_filtrado_df1:")
+    st.write(df_filtrado_df1.columns.tolist())
+    
+    st.write("Preview df_filtrado_df1:")
+    st.write(df_filtrado_df1.head())
+    
     df_filtrado_df1 = df_filtrado_df1[
         (df_filtrado_df1['urf'].isin(urfs_grafico))]
 
