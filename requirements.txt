@@ -1,0 +1,8 @@
+streamlit
+requests
+pandas
+certifi
+numpy
+statsforecast<2.0
+matplotlib
+plotly
