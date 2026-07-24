@@ -6,30 +6,28 @@ import numpy as np
 from statsforecast import StatsForecast
 from statsforecast.models import ETS
 import datetime
-import matplotlib.pyplot as plt
-import plotly.subplots as sp
-import streamlit as st
-import plotly.subplots as sp
-import plotly.graph_objects as go
-import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
-
-
-
-
 
 from PIL import Image
 import os
 
+# Abre a imagem
+#img = Image.open("imagens/Logo.png")
+
+
 
 st.set_page_config(page_title="Comex", page_icon="🌍", layout="wide")
 
-#st.image("Logo.png", use_container_width=True) ## Caso queira adicionar o logo
+
+#st.sidebar.image(img)
+#st.image("Logo.png", use_container_width=True)
 st.sidebar.header("🔍 Filtros")
 
 # URL da API
 url = "https://api-comexstat.mdic.gov.br/general"
+
+
+#current_working_dir = os.getcwd()
+#st.code(current_working_dir)
 
 st.markdown(
     """
@@ -59,8 +57,8 @@ filtro_selecionado = st.sidebar.radio(
 
 
 ano_atual = datetime.datetime.now().year
-anos = range(2020, ano_atual) 
-anos_cap = range(ano_atual - 2, ano_atual +1) #Menos opções porque se tenta puxar muitos dados de uma vez a api da erro 500 
+anos = range(2020, ano_atual)
+anos_cap = range(ano_atual - 2, ano_atual +1)
 
 if filtro_selecionado == "Posição (4 primeiros digitos)":
     ano_inicial = st.sidebar.selectbox("Selecione o ano inicial", anos)
@@ -77,7 +75,7 @@ if filtro_selecionado == "Posição (4 primeiros digitos)":
     
     if headings:
         api_param = headings
-
+        #st.sidebar.success(f"Parâmetro para API: {api_param}")
 
 elif filtro_selecionado == "NCM (completo)":
     ano_inicial = st.sidebar.selectbox("Selecione o ano inicial", anos)
@@ -94,6 +92,7 @@ elif filtro_selecionado == "NCM (completo)":
     
     if ncms:
         api_param = ncms
+        #st.sidebar.success(f"Parâmetro para API: {api_param}")
 
 elif filtro_selecionado == "Capítulo(2 primeiros digitos)":
     ano_inicial = st.sidebar.selectbox("Selecione o ano inicial", anos_cap)
@@ -110,6 +109,20 @@ elif filtro_selecionado == "Capítulo(2 primeiros digitos)":
     
     if chapters:
         api_param = chapters
+        #st.sidebar.success(f"Parâmetro para API: {api_param}")
+
+# Área principal
+#st.write(f"Data selecionada: {data_formatada}")
+#st.write(f"Filtro selecionado: {filtro_selecionado.upper()}")
+
+# Aqui você pode adicionar a lógica específica para cada tipo de filtro
+#if 'headings' in locals() and headings:
+    #st.write(f"Headings selecionados: {headings}")
+#elif 'ncms' in locals() and ncms:
+   # st.write(f"NCMs selecionados: {ncms}")
+#elif 'chapters' in locals() and chapters:
+    #st.write(f"Chapters selecionados: {chapters}")
+
 
 
 
@@ -244,8 +257,7 @@ def remover_colunas_zeros_na_ultimos_6_meses(df, col_data="data"):
     
     return df[colunas_manter]
 
-def remover_colunas_metade_zeros(df, col_data="data"): 
-    # Feita originalmente com 50% agora manter colunas com menos de 30% de NA ou zeros
+def remover_colunas_metade_zeros(df, col_data="data"):
     # Identificar colunas numéricas
     if col_data is None:
         colunas_numericas = df.columns.tolist()
@@ -279,11 +291,6 @@ def remover_colunas_metade_zeros(df, col_data="data"):
 
 def forecast_ets_mnm_robust(df, date_col, h=6, constant=1e-6, max_retries=2):
     """
-    Utilização de um modelo ETS MNM para realizar a projeção de 6 meses
-    Escolha do modelo veio de manter métodos já utilizados (testados outros modelos que são melhores para alta volatilidade, pior performance)
-    Adicionamos uma compressão suave na metodologia no caso de valores explosivos classificados como fora a partir do max e do min da série
-    Escolha de 6 meses só de projeção pois dados de volume são instaveis
-
     Versão com tratamento robusto de erros e datas de projeção corretas para cada série
     com compressão suave para valores projetados acima do máximo histórico
     """
@@ -433,8 +440,8 @@ def classificar_tipo(row):
         return 'Projetado'
     
 
-    
-def quebrar_titulo(texto, max_caracteres=20): # Função para quebrar título longo dos graficos a seguir porque nomes longos quando graficos separados por URF
+    # Função para quebrar título longo
+def quebrar_titulo(texto, max_caracteres=20):
     if len(texto) <= max_caracteres:
         return texto
     palavras = texto.split()
@@ -454,11 +461,10 @@ def quebrar_titulo(texto, max_caracteres=20): # Função para quebrar título lo
     
     return "<br>".join(linhas)
 
-
-if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontrado no inicio da pagina sem mesmo ter a busca pelos dados
+if "df" in st.session_state:
     if "df1" not in st.session_state:
         df1 = df
-        df1["IE"] = "Import" # Pegamos somente dados de Importação
+        df1["IE"] = "Import"
         df1[['urf_code', 'urf']] = df1['urf'].str.split(' - ', n=1, expand=True)
         df1 = df1.assign(
         data=lambda x: pd.to_datetime(
@@ -579,7 +585,7 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
 
 
 
-    
+    # cria a tabela só uma vez
     if "tabela_combinada" not in st.session_state:
         tabela_combinada = pd.merge(
         st.session_state.df_long_final, 
@@ -608,7 +614,8 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
     unsafe_allow_html=True
     )
 
-   
+    #st.write(df1)
+    #st.write(tabela_combinada)
     # filtro de NCM
     NCM = st.selectbox(
     "NCM", 
@@ -645,13 +652,14 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
     tabela_combinada['data'] = pd.to_datetime(tabela_combinada['data']).dt.to_period('M').dt.to_timestamp().dt.date
     #tabela_combinada['valor'] = tabela_combinada['valor'].round()
 
-    
+    #st.write(tabela_combinada)
 
 
+    import pandas as pd
 
     dados_filtrados = st.session_state.tabela_combinada[
     st.session_state.tabela_combinada["coNcm"] == NCM]
-    
+    #st.write(dados_filtrados)
 
     dados_filtrados_2 = dados_filtrados.loc[:,['data','coNcm','valor','urf_completo', 'Tipo']]
 
@@ -665,15 +673,14 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
 
     urfs_grafico = dados_filtrados['urf'].unique()
 
-
-    # converter as colunas para numéricas
+    #st.write(urfs_grafico)
+    #st.write(df1)
+    # converter as colunas para numéricas (forçando erros a virar NaN)
     df1['metricFOB'] = pd.to_numeric(df1['metricFOB'], errors='coerce')
     df1['metricStatistic'] = pd.to_numeric(df1['metricStatistic'], errors='coerce')
     
-    
     df1['data'] = pd.to_datetime(df1['data'])  # garante que é datetime
     df1['ano'] = df1['data'].dt.year 
-    # Tratamento de outliers no caso de ter dado de preco (precoFOB) mas a quantidade (metricStatistic) ser 0
     # calcular a nova coluna
     df1['precoFOB'] = np.where(
     (df1['metricStatistic'].notna()) & (df1['metricStatistic'] != 0),
@@ -683,17 +690,18 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
 
     mediana_urf_ano = df1.groupby(['urf', 'ano'])['precoFOB'].transform('median')
 
-    # Substituir apenas se metricStatistic == 0 e metricFOB != 0
+    # 3️⃣ Substituir apenas se metricStatistic == 0 e metricFOB != 0
     mask_substituir = (df1['metricStatistic'] == 0) & (df1['metricFOB'] != 0)
     df1.loc[mask_substituir, 'precoFOB'] = mediana_urf_ano[mask_substituir]
 
+    # 4️⃣ Se quiser, manter precoFOB = 0 quando ambos forem zero
     mask_zeros = (df1['metricStatistic'] == 0) & (df1['metricFOB'] == 0)
     df1.loc[mask_zeros, 'precoFOB'] = 0
 
     
 
 
-    def substituir_outliers(grupo): #método de interquartil vendo os dados do ncm especifico para o URF especifico e pegando a mediana do ano que está inserido
+    def substituir_outliers(grupo):
         q1 = grupo['precoFOB'].quantile(0.25)
         q3 = grupo['precoFOB'].quantile(0.75)
         iqr = q3 - q1
@@ -726,6 +734,7 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
 
     
 
+    # --- Definir o range do slider com base nas datas da base ---
     min_data_df1 = df1['data'].min()
     max_data_df1 = df1['data'].max()
 
@@ -767,12 +776,20 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
     st.markdown( f""" <h4 style='text-align:center; color:#0845E0; font-family:Arial; 
     font-weight:bold;'> O URF com menor preço FOB médio no período selecionado é: <b>{urf_menor_preco}</b> </h4> """, unsafe_allow_html=True )
     
-  
+
+
+
+    # (Opcional) Gráfico de barras
+    #st.bar_chart(ranking.set_index('urf')['precoFOB_medio'])
+
+    
 
 
     
 
-   
+    import matplotlib.pyplot as plt
+
+    import plotly.subplots as sp
     data_min = dados_filtrados['data'].min()
     data_max = dados_filtrados['data'].max()
     
@@ -811,7 +828,7 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
     mask_2 = (dados_filtrados['data'] >= intervalo_0[0]) & (dados_filtrados['data'] <= intervalo_0[1])
     dados_filtrados_0 = dados_filtrados.loc[mask_2].copy()
 
-    # Criar figura com títulos quebrados 
+    # Criar figura com títulos quebrados
     fig = sp.make_subplots(
         rows=linhas, cols=cols_por_linha,
         subplot_titles=[f"URF: {quebrar_titulo(str(u))}" for u in urfs_grafico],
@@ -819,7 +836,7 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
         horizontal_spacing=0.1   # espaço horizontal entre gráficos
     )
 
-    
+    # Restante do código permanece igual...
     for i, urf in enumerate(urfs_grafico):
         dados_urf = dados_filtrados_0[dados_filtrados_0['urf'] == urf]
     
@@ -841,43 +858,43 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
     # Layout com ajustes para os títulos
     fig.update_layout(
         height=400*linhas, 
-        width=1200,  
+        width=1200,  # aumentei a largura
         showlegend=False,
-        plot_bgcolor="#DBF7FF",   
-        paper_bgcolor="white",    
-        margin=dict(t=100, b=50, l=50, r=50)  
+        plot_bgcolor="#DBF7FF",   # fundo azul claro da área externa
+        paper_bgcolor="white",    # fora branco
+        margin=dict(t=100, b=50, l=50, r=50)  # margens ajustadas
     )
 
     # Ajustar tamanho da fonte, cor e negrito dos títulos
     fig.update_annotations(
         font=dict(
-            size=14,           
-            color="#042373",     
-            family="Arial",    
-            weight="bold"      
+            size=14,           # tamanho maior
+            color="#042373",     # cor preta
+            family="Arial",    # fonte (opcional)
+            weight="bold"      # negrito
         ),
         yshift=10  # move títulos para cima
     )
 
-    
+    # ADICIONAR BORDAS AZUL ESCURO EM CADA GRÁFICO
     fig.update_xaxes(
         showgrid=False, 
         zeroline=False, 
-        showline=True,                    
-        linewidth=2,                     
-        linecolor='#042373',            
-        mirror=True,                      
-        showticklabels=True               
+        showline=True,                    # MOSTRAR LINHA DO EIXO
+        linewidth=2,                      # ESPESSURA DA BORDA
+        linecolor='#042373',             # COR AZUL ESCURO
+        mirror=True,                      # REPETIR A LINHA EM TODOS OS LADOS
+        showticklabels=True               # MANTER OS RÓTULOS VISÍVEIS
     )
 
     fig.update_yaxes(
         showgrid=False, 
         zeroline=False, 
-        showline=True,                    
-        linewidth=2,                      
-        linecolor='#042373',           
-        mirror=True,                      
-        showticklabels=True              
+        showline=True,                    # MOSTRAR LINHA DO EIXO
+        linewidth=2,                      # ESPESSURA DA BORDA
+        linecolor='#042373',             # COR AZUL ESCURO
+        mirror=True,                      # REPETIR A LINHA EM TODOS OS LADOS
+        showticklabels=True               # MANTER OS RÓTULOS VISÍVEIS
     )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -886,10 +903,16 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
 
 
 
-    
+    import streamlit as st
+    import plotly.subplots as sp
+    import plotly.graph_objects as go
+
     
 
-   
+    # Converter a coluna 'data' para datetime
+    
+
+    # Selecionar URFs que vamos mostrar
     
     dados_filtrados["valor"] = pd.to_numeric(dados_filtrados["valor"], errors="coerce")
     # Filtrar dados apenas para essas URFs e Tipo = "Realizado"
@@ -992,6 +1015,14 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
     # Exibir no Streamlit
     st.plotly_chart(fig, use_container_width=True)
 
+
+    import streamlit as st
+    import plotly.graph_objects as go
+    import pandas as pd
+    import plotly.express as px
+
+    # --- df1 já deve existir ---
+    # df1 deve conter ['data', 'via', 'valor', 'Tipo']
 
     # Converter coluna 'data' para datetime
     df_2['data'] = pd.to_datetime(df_2['data'], errors='coerce')
