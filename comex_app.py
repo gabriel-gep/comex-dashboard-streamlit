@@ -457,7 +457,8 @@ def quebrar_titulo(texto, max_caracteres=20): # Função para quebrar título lo
 
 if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontrado no inicio da pagina sem mesmo ter a busca pelos dados
     st.write("Colunas df1:") #adicionado
-    st.write(st.session_state.df1.columns.tolist()) #adicionado
+    if "df1" in st.session_state: #adicionado
+        st.write(st.session_state.df1.columns.tolist()) #adicionado
     if "df1" not in st.session_state:
         df1 = df
         df1["IE"] = "Import" # Pegamos somente dados de Importação
