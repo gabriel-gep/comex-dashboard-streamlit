@@ -459,21 +459,20 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
     st.write("Colunas df1:") #adicionado
     if "df1" in st.session_state: #adicionado
         st.write(st.session_state.df1.columns.tolist()) #adicionado
-    df1 = df.copy()
-
-    df1["IE"] = "Import"
-
-    df1[['urf_code', 'urf']] = df1['urf'].str.split(' - ', n=1, expand=True)
-
-    df1 = df1.assign(
+    if "df1" not in st.session_state:
+        df1 = df
+        df1["IE"] = "Import" # Pegamos somente dados de Importação
+        st.write(df1['urf'].head(10))  #adicionado
+        df1[['urf_code', 'urf']] = df1['urf'].str.split(' - ', n=1, expand=True)
+        df1 = df1.assign(
         data=lambda x: pd.to_datetime(
-            x['year'].astype(str) + '-' + x['monthNumber'].astype(str) + '-01'
+        x['year'].astype(str) + '-' + x['monthNumber'].astype(str) + '-01'
         ).dt.date
-    )
-
-    df1['Tipo'] = "Realizado"
-
-    st.session_state.df1 = df1
+        )
+        df1['Tipo'] = "Realizado"
+        st.session_state.df1 = df1
+    else:
+        df1  = st.session_state.df1
     
 
     if "df_2" not in st.session_state:
