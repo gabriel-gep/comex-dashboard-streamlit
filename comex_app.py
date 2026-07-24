@@ -462,7 +462,6 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
         df1 = df
         df1["IE"] = "Import" # Pegamos somente dados de Importação
         st.write(df1['urf'].head(10))  #adicionado
-        st.write(df1.columns.tolist()) #adicionado
         df1[['urf_code', 'urf']] = df1['urf'].str.split(' - ', n=1, expand=True)
         df1 = df1.assign(
         data=lambda x: pd.to_datetime(
