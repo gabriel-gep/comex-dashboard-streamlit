@@ -744,8 +744,8 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
 
     # --- Filtrar o DataFrame pelo período selecionado --- #alterado
    df_filtrado_df1 = df1[(df1['data'] >= periodo[0]) & (df1['data'] <= periodo[1])]
-
-    df_filtrado_df1 = df_filtrado_df1[
+   
+   df_filtrado_df1 = df_filtrado_df1[
         (df_filtrado_df1['urf'].isin(urfs_grafico))]
 
     # --- Calcular média de precoFOB por URF ---
