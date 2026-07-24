@@ -22,8 +22,8 @@ import plotly.express as px
 from PIL import Image
 import os
 
+
 st.set_page_config(page_title="Comex", page_icon="🌍", layout="wide")
-st.session_state.clear() #adiconado
 
 #st.image("Logo.png", use_container_width=True) ## Caso queira adicionar o logo
 st.sidebar.header("🔍 Filtros")
@@ -456,13 +456,9 @@ def quebrar_titulo(texto, max_caracteres=20): # Função para quebrar título lo
 
 
 if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontrado no inicio da pagina sem mesmo ter a busca pelos dados
-    st.write("Colunas df1:") #adicionado
-    if "df1" in st.session_state: #adicionado
-        st.write(st.session_state.df1.columns.tolist()) #adicionado
     if "df1" not in st.session_state:
         df1 = df
         df1["IE"] = "Import" # Pegamos somente dados de Importação
-        st.write(df1['urf'].head(10))  #adicionado
         df1[['urf_code', 'urf']] = df1['urf'].str.split(' - ', n=1, expand=True)
         df1 = df1.assign(
         data=lambda x: pd.to_datetime(
@@ -745,12 +741,6 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
     # --- Filtrar o DataFrame pelo período selecionado ---
     df_filtrado_df1 = df1[(df1['data'] >= periodo[0]) & (df1['data'] <= periodo[1])]
 
-    st.write("Colunas disponíveis em df_filtrado_df1:")
-    st.write(df_filtrado_df1.columns.tolist())
-    
-    st.write("Preview df_filtrado_df1:")
-    st.write(df_filtrado_df1.head())
-    
     df_filtrado_df1 = df_filtrado_df1[
         (df_filtrado_df1['urf'].isin(urfs_grafico))]
 
