@@ -392,12 +392,11 @@ def forecast_ets_mnm_robust(df, date_col, h=6, constant=1e-6, max_retries=2):
     
     if not all_forecasts:
         return pd.DataFrame()
-    
-    # Consolidar todos os resultados
-    # Primeiro, criar um DataFrame com todas as datas únicas de projeção
+        
+    # Consolidar todas as previsões
     all_dates = set()
-    for forecast_df in all_forecasts:
-        all_dates.update(forecast_df['ds'])
+    for f in all_forecasts:
+        all_dates.update(f['ds'].tolist())
     
     all_dates = sorted(list(all_dates))
     consolidated_df = pd.DataFrame({'ds': all_dates})
@@ -463,7 +462,7 @@ def quebrar_titulo(texto, max_caracteres=20):
 
 if "df" in st.session_state:
     if "df1" not in st.session_state:
-        df1 = df
+        df1 = st.session_state.df.copy()
         df1["IE"] = "Import"
         df1[['urf_code', 'urf']] = df1['urf'].str.split(' - ', n=1, expand=True)
         df1 = df1.assign(
@@ -697,7 +696,6 @@ if "df" in st.session_state:
     # 4️⃣ Se quiser, manter precoFOB = 0 quando ambos forem zero
     mask_zeros = (df1['metricStatistic'] == 0) & (df1['metricFOB'] == 0)
     df1.loc[mask_zeros, 'precoFOB'] = 0
-
     
 
 
@@ -716,7 +714,7 @@ if "df" in st.session_state:
         ] = mediana
         return grupo
 
-    df1 = df1.groupby(['urf', 'ano'], group_keys=False).apply(substituir_outliers)
+    df1 = df1.groupby(['urf', 'ano'], group_keys=False).apply(substituir_outliers).reset_index(drop=True)
 
 
     df1['data'] = pd.to_datetime(df1['data'])
@@ -734,7 +732,7 @@ if "df" in st.session_state:
 
     
 
-    # --- Definir o range do slider com base nas datas da base ---
+    # --- Definir o range do slider com base nas das da base ---
     min_data_df1 = df1['data'].min()
     max_data_df1 = df1['data'].max()
 
@@ -848,7 +846,7 @@ if "df" in st.session_state:
             fig.add_scatter(
                 x=subset["data"],
                 y=subset["valor"],
-                mode="lines+markers",
+                mode='lines+markers',
                 name=f"{tipo} - {urf}",
                 line=dict(color=cor),
                 row=row, col=col,
