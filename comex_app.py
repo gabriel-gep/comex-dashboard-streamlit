@@ -22,8 +22,8 @@ import plotly.express as px
 from PIL import Image
 import os
 
-
 st.set_page_config(page_title="Comex", page_icon="🌍", layout="wide")
+st.session_state.clear() #adiconado
 
 #st.image("Logo.png", use_container_width=True) ## Caso queira adicionar o logo
 st.sidebar.header("🔍 Filtros")
@@ -456,6 +456,8 @@ def quebrar_titulo(texto, max_caracteres=20): # Função para quebrar título lo
 
 
 if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontrado no inicio da pagina sem mesmo ter a busca pelos dados
+    st.write("Colunas df1:") #adicionado
+    st.write(st.session_state.df1.columns.tolist()) #adicionado
     if "df1" not in st.session_state:
         df1 = df
         df1["IE"] = "Import" # Pegamos somente dados de Importação
@@ -1506,36 +1508,3 @@ if "df" in st.session_state: # Estrura que parou de ter o erro 'df' não encontr
 
 else:
     df = pd.DataFrame()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
