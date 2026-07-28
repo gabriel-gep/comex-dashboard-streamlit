@@ -697,25 +697,17 @@ if "df" in st.session_state:
     mask_zeros = (df1['metricStatistic'] == 0) & (df1['metricFOB'] == 0)
     df1.loc[mask_zeros, 'precoFOB'] = 0
     
-
-
-    def substituir_outliers(grupo):
-        q1 = grupo['precoFOB'].quantile(0.25)
-        q3 = grupo['precoFOB'].quantile(0.75)
-        iqr = q3 - q1
-        lim_inf = q1 - 1.5 * iqr
-        lim_sup = q3 + 1.5 * iqr
-        mediana = grupo['precoFOB'].median()
-
-        # substituir outliers pela mediana do grupo
-        grupo.loc[
-            (grupo['precoFOB'] < lim_inf) | (grupo['precoFOB'] > lim_sup),
-            'precoFOB'
-        ] = mediana
-        return grupo
-
-    df1 = df1.groupby(['urf', 'ano'], group_keys=False).apply(substituir_outliers).reset_index(drop=True)
-
+    grp = df1.groupby(['urf', 'ano'])['precoFOB']
+    
+    q1 = grp.transform(lambda x: x.quantile(0.25))
+    q3 = grp.transform(lambda x: x.quantile(0.75))
+    iqr = q3 - q1
+    lim_inf = q1 - 1.5 * iqr
+    lim_sup = q3 + 1.5 * iqr
+    mediana = grp.transform('median')
+    
+    mask_outlier = (df1['precoFOB'] < lim_inf) | (df1['precoFOB'] > lim_sup)
+    df1.loc[mask_outlier, 'precoFOB'] = mediana[mask_outlier]
 
     df1['data'] = pd.to_datetime(df1['data'])
 
