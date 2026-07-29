@@ -194,17 +194,22 @@ def tentar_anos(url, filtro, api_param, ano_inicial, ano_atual):
 
     return None, None
 
-
 if st.sidebar.button("Buscar dados"):
+
+    # Limpa o pipeline derivado para forçar recálculo com os novos dados
+    chaves_para_limpar = [
+        "df1", "df_2", "base_urf", "df_wide_metade_zeros",
+        "forecast_df1", "df_completo", "df_final",
+        "df_long", "df_long_final", "tabela_combinada"
+    ]
+    for chave in chaves_para_limpar:
+        if chave in st.session_state:
+            del st.session_state[chave]
 
     df, ano_usado = tentar_anos(url, filtro, api_param, ano_inicial, ano_atual)
 
     if df is not None:
         st.write(f"Consulta realizada usando o ano: {ano_usado}")
-        
-
-
-
 
 def preencher_nan_entre_dados(df, coluna_data='data'):
     """
