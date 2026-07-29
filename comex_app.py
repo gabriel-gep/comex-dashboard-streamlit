@@ -71,7 +71,7 @@ if filtro_selecionado == "Posição (4 primeiros digitos)":
     for i in range(num_fields):
         heading = st.sidebar.text_input(f"Posição {i+1}:", value="2901" if i == 0 else "", max_chars= 4)
         if heading and heading.isdigit():
-            headings.append(int(heading))
+            headings.append(heading)
     
     if headings:
         api_param = headings
@@ -88,7 +88,7 @@ elif filtro_selecionado == "NCM (completo)":
     for i in range(num_fields):
         ncm = st.sidebar.text_input(f"NCM {i+1}:", value="29339999" if i == 0 else "", max_chars= 8)
         if ncm and ncm.isdigit():
-            ncms.append(int(ncm))
+            ncms.append(ncm)
     
     if ncms:
         api_param = ncms
@@ -105,7 +105,7 @@ elif filtro_selecionado == "Capítulo(2 primeiros digitos)":
     for i in range(num_fields):
         chapter = st.sidebar.text_input(f"Chapter {i+1}:", value="81" if i == 0 else "", max_chars= 2)
         if chapter and chapter.isdigit():
-            chapters.append(int(chapter))
+            chapters.append(chapter)
     
     if chapters:
         api_param = chapters
