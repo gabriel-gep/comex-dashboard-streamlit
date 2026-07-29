@@ -6,4 +6,3 @@ numpy
 statsforecast<2.0
 matplotlib
 plotly
-streamlit-aggrid
