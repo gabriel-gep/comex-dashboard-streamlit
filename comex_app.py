@@ -850,6 +850,20 @@ if "df" in st.session_state:
                 hovertemplate="Data: %{x}<br>Valor: %{y}<extra></extra>"
             )
 
+        realizado_urf = dados_urf[dados_urf["Tipo"] == "Realizado"].sort_values("data")
+        projetado_urf = dados_urf[dados_urf["Tipo"] == "Projetado"].sort_values("data")
+
+        if not realizado_urf.empty and not projetado_urf.empty:
+            fig.add_scatter(
+                x=[realizado_urf["data"].iloc[-1], projetado_urf["data"].iloc[0]],
+                y=[realizado_urf["valor"].iloc[-1], projetado_urf["valor"].iloc[0]],
+                mode='lines',
+                line=dict(color='gray', dash='dot'),
+                showlegend=False,
+                row=row, col=col,
+                hoverinfo='skip'
+            )
+
     # Layout com ajustes para os títulos
     fig.update_layout(
         height=400*linhas, 
