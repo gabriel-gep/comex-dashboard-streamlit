@@ -670,8 +670,11 @@ if "df" in st.session_state:
 
     dados_filtrados_2.columns = ['Data','NCM','Volume','URF', 'Tipo']
 
+    from st_aggrid import AgGrid, GridOptionsBuilder
 
-    st.dataframe(dados_filtrados_2)
+    gb = GridOptionsBuilder.from_dataframe(dados_filtrados_2)
+    gb.configure_default_column(filter=True, sortable=True, floatingFilter=True)
+    AgGrid(dados_filtrados_2, gridOptions=gb.build(), fit_columns_on_grid_load=True)
 
     dados_filtrados['data'] = pd.to_datetime(dados_filtrados['data'], errors='coerce')
 
