@@ -766,7 +766,7 @@ if "df" in st.session_state:
     ].iloc[0]
 
     # --- Mostrar resultado ---
-    st.dataframe(ranking)
+    st.dataframe(ranking, hide_index=True)
 
     st.markdown( f""" <h4 style='text-align:center; color:#0845E0; font-family:Arial; 
     font-weight:bold;'> O URF com menor preço FOB médio no período selecionado é: <b>{urf_menor_preco}</b> </h4> """, unsafe_allow_html=True )
