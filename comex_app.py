@@ -330,7 +330,7 @@ def forecast_ets_mnm_robust(df, date_col, h=6, constant=1e-6, max_retries=2):
                 # StatsForecast
                 sf = StatsForecast(
                     models=[model],
-                    freq='M',
+                    freq='ME',
                     n_jobs=1
                 )
                 
@@ -354,7 +354,7 @@ def forecast_ets_mnm_robust(df, date_col, h=6, constant=1e-6, max_retries=2):
                 forecast_dates = pd.date_range(
                     start=last_date_series + pd.DateOffset(months=1),
                     periods=h,
-                    freq='M'
+                    freq='ME'
                 )
                 
                 forecast_series = pd.DataFrame({
@@ -378,7 +378,7 @@ def forecast_ets_mnm_robust(df, date_col, h=6, constant=1e-6, max_retries=2):
                             forecast_dates = pd.date_range(
                                 start=last_date_series + pd.DateOffset(months=1),
                                 periods=h,
-                                freq='M'
+                                freq='ME'
                             )
                             forecast_series = pd.DataFrame({
                                 'ds': forecast_dates,
