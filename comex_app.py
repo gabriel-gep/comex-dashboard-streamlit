@@ -57,6 +57,7 @@ filtro_selecionado = st.sidebar.radio(
 
 
 ano_atual = datetime.datetime.now().year
+ANO_MINIMO_HISTORICO = 2020  # janela fixa usada para buscar dados e treinar a projeção
 anos = range(2020, ano_atual)
 anos_cap = range(ano_atual - 2, ano_atual +1)
 
@@ -206,7 +207,7 @@ if st.sidebar.button("Buscar dados"):
         if chave in st.session_state:
             del st.session_state[chave]
 
-    df, ano_usado = tentar_anos(url, filtro, api_param, ano_inicial, ano_atual)
+    df, ano_usado = tentar_anos(url, filtro, api_param, ANO_MINIMO_HISTORICO, ano_atual) #nova linha
 
     if df is not None:
         st.write(f"Consulta realizada usando o ano: {ano_usado}")
@@ -633,8 +634,10 @@ if "df" in st.session_state:
     data_min_slider = datas.min()
     data_max_slider = datas.max()
 
-    data_default_inicio = data_max_slider - pd.DateOffset(months=12)
+    data_default_inicio = pd.Timestamp(f"{ano_inicial}-01-01") #bloco novo
     if data_default_inicio < data_min_slider:
+        data_default_inicio = data_min_slider
+    if data_default_inicio > data_max_slider:
         data_default_inicio = data_min_slider
     
     df1_filtrado = df1[df1["coNcm"] == NCM]
