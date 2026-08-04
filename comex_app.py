@@ -670,8 +670,11 @@ if "df" in st.session_state:
 
     dados_filtrados_2 = dados_filtrados.loc[:,['data','coNcm','valor','urf_completo', 'Tipo']]
 
-
     dados_filtrados_2.columns = ['Data','NCM','Volume','URF', 'Tipo']
+
+    dados_filtrados_2 = dados_filtrados_2[
+        pd.to_datetime(dados_filtrados_2['Data']) >= pd.Timestamp(f"{ano_inicial}-01-01")
+    ]
 
     st.dataframe(dados_filtrados_2)
 
@@ -733,6 +736,7 @@ if "df" in st.session_state:
 
     # --- Definir o range do slider com base nas das da base ---
     min_data_df1 = df1['data'].min()
+    min_data_df1 = max(min_data_df1, pd.Timestamp(f"{ano_inicial}-01-01"))
     max_data_df1 = df1['data'].max()
 
     # Slider para selecionar o período
@@ -788,6 +792,7 @@ if "df" in st.session_state:
 
     import plotly.subplots as sp
     data_min = dados_filtrados['data'].min()
+    data_min = max(data_min, pd.Timestamp(f"{ano_inicial}-01-01"))
     data_max = dados_filtrados['data'].max()
     
     
@@ -944,6 +949,7 @@ if "df" in st.session_state:
     
     # --- Controle deslizante de datas no Streamlit ---
     data_min = df_agrupado['data'].min()
+    data_min = max(data_min, pd.Timestamp(f"{ano_inicial}-01-01"))
     data_max = df_agrupado['data'].max()
 
     st.markdown(
@@ -1057,6 +1063,7 @@ if "df" in st.session_state:
 
     # --- Slider de datas no Streamlit (key única) ---
     data_min = df_agrupado['data'].min()
+    data_min = max(data_min, pd.Timestamp(f"{ano_inicial}-01-01"))
     data_max = df_agrupado['data'].max()
 
     st.markdown(
