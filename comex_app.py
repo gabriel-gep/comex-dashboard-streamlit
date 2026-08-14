@@ -27,7 +27,7 @@ with col1:
         "outliers e projeção de volume (fonte: Comex Stat / MDIC)."
     )
     st.page_link(
-        "pages/1_🇧🇷_Comex_Brasil.py",
+        "pages/1_Comex_Brasil.py",
         label="Abrir painel do Brasil",
         icon="🇧🇷",
     )
@@ -39,7 +39,7 @@ with col2:
         "(fonte oficial: USITC DataWeb)."
     )
     st.page_link(
-        "pages/2_🇺🇸_Comex_EUA.py",
+        "pages/2_Comex_EUA.py",
         label="Abrir painel dos EUA",
         icon="🇺🇸",
     )
