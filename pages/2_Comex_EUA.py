@@ -167,12 +167,19 @@ if "df_eua" in st.session_state:
 
         # Detecta automaticamente qual coluna representa o país, comparando
         # os valores da coluna com a lista de países conhecida (COUNTRY_CODES).
+        # Não exige 100% de correspondência: a API pode incluir linhas
+        # especiais (ex: "Countries NEC", "Free Trade Zones") que não estão
+        # na lista -- usamos a coluna com maior proporção de correspondência.
         country_col = None
+        melhor_proporcao = 0.0
         for c in label_cols:
-            valores_unicos = set(str(v) for v in df[c].dropna().unique())
-            if valores_unicos and valores_unicos.issubset(set(COUNTRY_CODES.keys())):
+            valores = df[c].dropna().astype(str)
+            if len(valores) == 0:
+                continue
+            proporcao = valores.isin(COUNTRY_CODES.keys()).mean()
+            if proporcao > melhor_proporcao and proporcao >= 0.5:
+                melhor_proporcao = proporcao
                 country_col = c
-                break
 
         df_grafico = df.copy()
         df_grafico["_valor_ranking"] = df_grafico[years_cols].sum(axis=1, skipna=True)
