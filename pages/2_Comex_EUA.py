@@ -195,7 +195,7 @@ if "df_eua" in st.session_state:
             ]
             return " – ".join(partes) if partes else "Total"
 
-        def desenhar_grafico(df_plot, titulo, key_prefix):
+        def desenhar_grafico(df_plot, titulo, key_prefix, legenda_longa=False):
             todos_rotulos = df_plot.sort_values("_valor_ranking", ascending=False)["_rotulo"].tolist()
             top5_default = todos_rotulos[:5]
 
@@ -209,19 +209,23 @@ if "df_eua" in st.session_state:
                 st.session_state[ms_key] = top5_default
                 st.session_state[reset_flag_key] = False
 
-            col_ms, col_btn = st.columns([5, 1])
-            with col_ms:
-                rotulos_selecionados = st.multiselect(
-                    f"Linhas exibidas — {titulo}",
-                    options=todos_rotulos,
-                    default=top5_default,
-                    key=ms_key,
-                )
+            # Rótulo do campo e botão "Top 5" na mesma linha, lado a lado,
+            # para deixar claro que o botão age sobre o filtro logo abaixo.
+            col_label, col_btn = st.columns([5, 1])
+            with col_label:
+                st.markdown(f"**Linhas exibidas — {titulo}**")
             with col_btn:
-                st.write("")
-                if st.button("🔝 Top 5", key=f"{key_prefix}_reset_btn", use_container_width=True):
+                if st.button("🔝 Restaurar Top 5", key=f"{key_prefix}_reset_btn", use_container_width=True):
                     st.session_state[reset_flag_key] = True
                     st.rerun()
+
+            rotulos_selecionados = st.multiselect(
+                "Linhas exibidas",
+                options=todos_rotulos,
+                default=top5_default,
+                key=ms_key,
+                label_visibility="collapsed",
+            )
 
             if not rotulos_selecionados:
                 st.info("Selecione ao menos uma linha para exibir o gráfico.")
@@ -241,15 +245,32 @@ if "df_eua" in st.session_state:
                     )
                 )
 
+            if legenda_longa:
+                # Rótulos longos (código HTS + descrição) -- legenda embaixo
+                # do gráfico, em várias linhas, em vez de cortada na lateral.
+                legend_config = dict(
+                    orientation="h",
+                    yanchor="top",
+                    y=-0.25,
+                    xanchor="center",
+                    x=0.5,
+                    font=dict(size=10),
+                )
+                margin_config = dict(t=40, b=160, l=50, r=50)
+            else:
+                legend_config = dict()
+                margin_config = dict(t=40, b=50, l=50, r=50)
+
             fig.update_layout(
                 barmode="group",
                 xaxis_title="Ano",
                 yaxis_title="Valor (Customs Value, USD)",
                 plot_bgcolor="#DBF7FF",
                 paper_bgcolor="white",
-                height=450,
-                margin=dict(t=40, b=50, l=50, r=50),
+                height=450 if not legenda_longa else 550,
+                margin=margin_config,
                 legend_title="País" if country_col else "Linha",
+                legend=legend_config,
             )
             fig.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
             fig.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
@@ -277,5 +298,7 @@ if "df_eua" in st.session_state:
                 desenhar_grafico(df_grafico, "Todos os HTS", key_prefix="grafico_unico")
         else:
             # Sem quebra por país -- rótulo usa todas as colunas de identificação
+            # (código HTS + descrição, que costuma ser longo) -- legenda
+            # embaixo do gráfico para não cortar o texto na lateral.
             df_grafico["_rotulo"] = df_grafico.apply(lambda r: montar_rotulo(r, label_cols), axis=1)
-            desenhar_grafico(df_grafico, "Todas as linhas", key_prefix="grafico_unico")
+            desenhar_grafico(df_grafico, "Todas as linhas", key_prefix="grafico_unico", legenda_longa=True)
