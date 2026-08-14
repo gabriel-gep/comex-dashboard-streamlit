@@ -6,7 +6,8 @@ que verifica se o token da API DataWeb está perto de expirar e, se sim,
 dispara um e-mail de alerta via API do SendGrid.
 
 Variáveis de ambiente esperadas (configuradas como GitHub Secrets):
-    TOKEN_GENERATED_ON   -> data "YYYY-MM-DD" em que o token foi gerado
+    TOKEN_EXPIRES_ON     -> data "YYYY-MM-DD" em que o token expira
+                             (a data que a USITC mostrou ao gerar o token)
     SENDGRID_API_KEY     -> API key do SendGrid
     EMAIL_FROM            -> remetente verificado no SendGrid (Single
                               Sender Verification ou domínio autenticado)
@@ -22,13 +23,11 @@ import sys
 
 import requests
 
-TOKEN_VALIDITY_DAYS = 180
 SENDGRID_URL = "https://api.sendgrid.com/v3/mail/send"
 
 
-def token_status(token_generated_on: str, warn_days_before: int) -> dict:
-    generated = dt.date.fromisoformat(token_generated_on)
-    expires_on = generated + dt.timedelta(days=TOKEN_VALIDITY_DAYS)
+def token_status(token_expires_on: str, warn_days_before: int) -> dict:
+    expires_on = dt.date.fromisoformat(token_expires_on)
     days_left = (expires_on - dt.date.today()).days
     return {
         "expires_on": expires_on,
@@ -68,13 +67,12 @@ def send_email(subject: str, body: str) -> None:
 
 
 def main() -> None:
-    token_generated_on = os.environ["TOKEN_GENERATED_ON"]
+    token_expires_on = os.environ["TOKEN_EXPIRES_ON"]
     warn_days_before = int(os.environ.get("WARN_DAYS_BEFORE", "15"))
 
-    status = token_status(token_generated_on, warn_days_before)
+    status = token_status(token_expires_on, warn_days_before)
 
-    print(f"Token gerado em: {token_generated_on}")
-    print(f"Expira em: {status['expires_on']} ({status['days_left']} dias restantes)")
+    print(f"Token expira em: {status['expires_on']} ({status['days_left']} dias restantes)")
 
     if status["is_expired"]:
         send_email(
@@ -84,7 +82,7 @@ def main() -> None:
                 "Gere um novo token em https://dataweb.usitc.gov "
                 "(aba API -> Generate Token) e atualize:\n"
                 "- st.secrets['DATAWEB_TOKEN'] no Streamlit Cloud\n"
-                "- o secret TOKEN_GENERATED_ON no GitHub (com a data de hoje)\n"
+                "- o secret TOKEN_EXPIRES_ON no GitHub (com a nova data de expiração)\n"
             ),
         )
         print("E-mail de token EXPIRADO enviado via SendGrid.")
@@ -97,7 +95,7 @@ def main() -> None:
                 "Gere um novo token em https://dataweb.usitc.gov "
                 "(aba API -> Generate Token) e atualize:\n"
                 "- st.secrets['DATAWEB_TOKEN'] no Streamlit Cloud\n"
-                "- o secret TOKEN_GENERATED_ON no GitHub (com a data de hoje)\n"
+                "- o secret TOKEN_EXPIRES_ON no GitHub (com a nova data de expiração)\n"
             ),
         )
         print("E-mail de aviso enviado via SendGrid.")
