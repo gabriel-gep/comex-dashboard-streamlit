@@ -139,17 +139,21 @@ if "df_eua" in st.session_state:
     df = st.session_state["df_eua"]
     years_cols = [c for c in df.columns if c in st.session_state.get("df_eua_years", [])]
 
-    st.success(f"{len(df)} linha(s) retornada(s).")
+    # Adiciona coluna de Total (soma dos anos) ao final da tabela
+    df_exibicao = df.copy()
+    df_exibicao["Total"] = df_exibicao[years_cols].sum(axis=1, skipna=True)
+
+    st.success(f"{len(df_exibicao)} linha(s) retornada(s).")
     st.dataframe(
-        df,
+        df_exibicao,
         use_container_width=True,
         column_config={
             col: st.column_config.NumberColumn(format="localized")
-            for col in years_cols
+            for col in years_cols + ["Total"]
         },
     )
 
-    csv = df.to_csv(index=False).encode("utf-8")
+    csv = df_exibicao.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Baixar CSV", csv, "comex_eua_import.csv", "text/csv")
 
     # --- Gráfico: valor por ano, com rótulo legível e filtro Top N ---
@@ -195,12 +199,29 @@ if "df_eua" in st.session_state:
             todos_rotulos = df_plot.sort_values("_valor_ranking", ascending=False)["_rotulo"].tolist()
             top5_default = todos_rotulos[:5]
 
-            rotulos_selecionados = st.multiselect(
-                f"Linhas exibidas — {titulo} (padrão: top 5 por valor total no período)",
-                options=todos_rotulos,
-                default=top5_default,
-                key=f"{key_prefix}_multiselect",
-            )
+            ms_key = f"{key_prefix}_multiselect"
+            reset_flag_key = f"{key_prefix}_reset_flag"
+
+            # Se o botão "Top 5" foi clicado no ciclo anterior, restaura a
+            # seleção ANTES de instanciar o widget (não dá para alterar o
+            # session_state de um widget depois que ele já foi criado).
+            if st.session_state.get(reset_flag_key):
+                st.session_state[ms_key] = top5_default
+                st.session_state[reset_flag_key] = False
+
+            col_ms, col_btn = st.columns([5, 1])
+            with col_ms:
+                rotulos_selecionados = st.multiselect(
+                    f"Linhas exibidas — {titulo}",
+                    options=todos_rotulos,
+                    default=top5_default,
+                    key=ms_key,
+                )
+            with col_btn:
+                st.write("")
+                if st.button("🔝 Top 5", key=f"{key_prefix}_reset_btn", use_container_width=True):
+                    st.session_state[reset_flag_key] = True
+                    st.rerun()
 
             if not rotulos_selecionados:
                 st.info("Selecione ao menos uma linha para exibir o gráfico.")
