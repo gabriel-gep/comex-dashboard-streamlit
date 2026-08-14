@@ -1,5 +1,7 @@
 import sys
 import os
+import re
+import datetime as dt
 
 # Garante que o módulo dataweb_client.py (na raiz do projeto) seja importável
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -47,12 +49,23 @@ st.sidebar.header("🔍 Filtros")
 hts_input = st.sidebar.text_area(
     "Códigos HTS (um por linha)",
     value="0306144030",
-    help="Ex: 0306144030. Pode informar vários, um por linha.",
+    help=(
+        "Ex: 0306144030 ou 2505.10.10.00 — pontos são removidos "
+        "automaticamente. Pode informar vários, um por linha."
+    ),
 )
-hts_codes = [c.strip() for c in hts_input.splitlines() if c.strip()]
+# Remove qualquer caractere que não seja dígito (pontos, espaços etc.),
+# já que a API espera o código HTS só com números.
+_raw_lines = [c.strip() for c in hts_input.splitlines() if c.strip()]
+hts_codes = [re.sub(r"[^0-9]", "", line) for line in _raw_lines]
+hts_codes = [c for c in hts_codes if c]
 
+ano_atual = dt.datetime.now().year
 year_start, year_end = st.sidebar.slider(
-    "Intervalo de anos", min_value=2010, max_value=2025, value=(2020, 2024)
+    "Intervalo de anos",
+    min_value=2010,
+    max_value=ano_atual - 1,
+    value=(2020, ano_atual - 1),
 )
 years = [str(y) for y in range(year_start, year_end + 1)]
 
