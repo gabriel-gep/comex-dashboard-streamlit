@@ -7,6 +7,7 @@ import datetime as dt
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import streamlit as st
+import pandas as pd
 import plotly.graph_objects as go
 
 from dataweb_client import (
@@ -118,20 +119,40 @@ if buscar:
             st.error(f"Erro ao consultar a API DataWeb: {e}")
             st.stop()
 
+    # Colunas de ano vêm como texto (ex: "925,827") -- converter para
+    # numérico permite ordenação correta na tabela e uso direto no gráfico.
+    for col in years:
+        if col in df.columns:
+            df[col] = (
+                df[col]
+                .astype(str)
+                .str.replace(",", "", regex=False)
+                .str.strip()
+                .replace({"": None, "nan": None})
+            )
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     st.session_state["df_eua"] = df
     st.session_state["df_eua_years"] = years
 
 if "df_eua" in st.session_state:
     df = st.session_state["df_eua"]
+    years_cols = [c for c in df.columns if c in st.session_state.get("df_eua_years", [])]
 
     st.success(f"{len(df)} linha(s) retornada(s).")
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(
+        df,
+        use_container_width=True,
+        column_config={
+            col: st.column_config.NumberColumn(format="localized")
+            for col in years_cols
+        },
+    )
 
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Baixar CSV", csv, "comex_eua_import.csv", "text/csv")
 
-    # --- Gráfico simples: valor por ano, mesmo estilo visual do painel BR ---
-    years_cols = [c for c in df.columns if c in st.session_state.get("df_eua_years", [])]
+    # --- Gráfico: valor por ano, com rótulo legível e filtro Top N ---
     if years_cols:
         st.markdown(
             """
@@ -142,32 +163,61 @@ if "df_eua" in st.session_state:
             unsafe_allow_html=True,
         )
 
-        fig = go.Figure()
-        for idx, row in df.iterrows():
-            valores = [
-                float(str(row[c]).replace(",", "")) if str(row[c]).strip() not in ("", "nan") else None
-                for c in years_cols
+        # Colunas que não são de ano identificam a linha (país, descrição
+        # do HTS, etc.) -- usamos elas para montar o rótulo do gráfico,
+        # em vez de "Linha N".
+        label_cols = [c for c in df.columns if c not in years_cols]
+
+        def montar_rotulo(row):
+            partes = [
+                str(row[c]) for c in label_cols
+                if str(row[c]).strip() not in ("", "nan", "None")
             ]
-            fig.add_trace(
-                go.Bar(
-                    x=years_cols,
-                    y=valores,
-                    name=f"Linha {idx + 1}",
-                    hovertemplate="Ano: %{x}<br>Valor: %{y:,.0f}<extra></extra>",
-                )
-            )
+            return " – ".join(partes) if partes else "Total"
 
-        fig.update_layout(
-            barmode="group",
-            xaxis_title="Ano",
-            yaxis_title="Valor (Customs Value, USD)",
-            plot_bgcolor="#DBF7FF",
-            paper_bgcolor="white",
-            width=1100,
-            height=500,
-            margin=dict(t=60, b=50, l=50, r=50),
+        df_grafico = df.copy()
+        df_grafico["_rotulo"] = df_grafico.apply(montar_rotulo, axis=1)
+        df_grafico["_valor_ranking"] = df_grafico[years_cols].sum(axis=1, skipna=True)
+        df_grafico = df_grafico.sort_values("_valor_ranking", ascending=False)
+
+        todos_rotulos = df_grafico["_rotulo"].tolist()
+        top5_default = todos_rotulos[:5]
+
+        rotulos_selecionados = st.multiselect(
+            "Linhas exibidas no gráfico (por padrão, top 5 por valor total no período)",
+            options=todos_rotulos,
+            default=top5_default,
         )
-        fig.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-        fig.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
 
-        st.plotly_chart(fig, use_container_width=True)
+        if rotulos_selecionados:
+            df_plot = df_grafico[df_grafico["_rotulo"].isin(rotulos_selecionados)]
+
+            fig = go.Figure()
+            for _, row in df_plot.iterrows():
+                valores = [row[c] for c in years_cols]
+                fig.add_trace(
+                    go.Bar(
+                        x=years_cols,
+                        y=valores,
+                        name=row["_rotulo"],
+                        hovertemplate="Ano: %{x}<br>Valor: %{y:,.0f}<extra></extra>",
+                    )
+                )
+
+            fig.update_layout(
+                barmode="group",
+                xaxis_title="Ano",
+                yaxis_title="Valor (Customs Value, USD)",
+                plot_bgcolor="#DBF7FF",
+                paper_bgcolor="white",
+                width=1100,
+                height=500,
+                margin=dict(t=60, b=50, l=50, r=50),
+                legend_title="Linha",
+            )
+            fig.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+            fig.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Selecione ao menos uma linha para exibir o gráfico.")
