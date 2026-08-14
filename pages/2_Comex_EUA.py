@@ -14,7 +14,7 @@ from dataweb_client import (
     COUNTRY_CODES,
 )
 
-st.set_page_config(page_title="Comex EUA", page_icon="🇺🇸", layout="wide")
+st.set_page_config(page_title="Comex EUA", page_icon="🌍", layout="wide")
 
 st.markdown(
     """
@@ -25,20 +25,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown(
-    """
-    <div style="
-        background-color:#f9f9f9;
-        border-left: 6px solid #ffcc00;
-        padding: 15px;
-        margin-bottom: 20px;
-        font-size: 14px;
-    ">
-    ⚠️ <b>Fonte:</b> USITC DataWeb (dados oficiais de comércio exterior dos EUA).
-    Consulta atual cobre apenas <b>Importações</b> (Import For Consumption), por código HTS.
-    </div>
-    """,
-    unsafe_allow_html=True,
+st.warning(
+    "**Fonte:** USITC DataWeb (dados oficiais de comércio exterior dos EUA). "
+    "Consulta atual cobre apenas **Importações** (Import For Consumption), por código HTS."
 )
 
 st.markdown("""
@@ -47,7 +36,7 @@ st.markdown("""
 1. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule).
 2. Selecione o intervalo de anos.
 3. Opcionalmente, filtre por país(es) de origem — deixe vazio para trazer todos.
-4. Clique em **Buscar dados**.
+4. Clique em **Buscar dados** SEMPRE que quiser carregar ou atualizar as visualizações.
 """)
 
 # --------------------------------------------------------------------
