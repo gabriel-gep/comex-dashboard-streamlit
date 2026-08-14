@@ -1,5 +1,7 @@
 import streamlit as st
 
+st.set_page_config(page_title="Comex - Menu", page_icon="🌍", layout="wide")
+
 st.markdown(
     """
     <h1 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
