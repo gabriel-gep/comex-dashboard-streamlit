@@ -163,37 +163,46 @@ if "df_eua" in st.session_state:
             unsafe_allow_html=True,
         )
 
-        # Colunas que não são de ano identificam a linha (país, descrição
-        # do HTS, etc.) -- usamos elas para montar o rótulo do gráfico,
-        # em vez de "Linha N".
         label_cols = [c for c in df.columns if c not in years_cols]
 
-        def montar_rotulo(row):
+        # Detecta automaticamente qual coluna representa o país, comparando
+        # os valores da coluna com a lista de países conhecida (COUNTRY_CODES).
+        country_col = None
+        for c in label_cols:
+            valores_unicos = set(str(v) for v in df[c].dropna().unique())
+            if valores_unicos and valores_unicos.issubset(set(COUNTRY_CODES.keys())):
+                country_col = c
+                break
+
+        df_grafico = df.copy()
+        df_grafico["_valor_ranking"] = df_grafico[years_cols].sum(axis=1, skipna=True)
+
+        def montar_rotulo(row, cols):
             partes = [
-                str(row[c]) for c in label_cols
+                str(row[c]) for c in cols
                 if str(row[c]).strip() not in ("", "nan", "None")
             ]
             return " – ".join(partes) if partes else "Total"
 
-        df_grafico = df.copy()
-        df_grafico["_rotulo"] = df_grafico.apply(montar_rotulo, axis=1)
-        df_grafico["_valor_ranking"] = df_grafico[years_cols].sum(axis=1, skipna=True)
-        df_grafico = df_grafico.sort_values("_valor_ranking", ascending=False)
+        def desenhar_grafico(df_plot, titulo, key_prefix):
+            todos_rotulos = df_plot.sort_values("_valor_ranking", ascending=False)["_rotulo"].tolist()
+            top5_default = todos_rotulos[:5]
 
-        todos_rotulos = df_grafico["_rotulo"].tolist()
-        top5_default = todos_rotulos[:5]
+            rotulos_selecionados = st.multiselect(
+                f"Linhas exibidas — {titulo} (padrão: top 5 por valor total no período)",
+                options=todos_rotulos,
+                default=top5_default,
+                key=f"{key_prefix}_multiselect",
+            )
 
-        rotulos_selecionados = st.multiselect(
-            "Linhas exibidas no gráfico (por padrão, top 5 por valor total no período)",
-            options=todos_rotulos,
-            default=top5_default,
-        )
+            if not rotulos_selecionados:
+                st.info("Selecione ao menos uma linha para exibir o gráfico.")
+                return
 
-        if rotulos_selecionados:
-            df_plot = df_grafico[df_grafico["_rotulo"].isin(rotulos_selecionados)]
+            df_sel = df_plot[df_plot["_rotulo"].isin(rotulos_selecionados)]
 
             fig = go.Figure()
-            for _, row in df_plot.iterrows():
+            for _, row in df_sel.iterrows():
                 valores = [row[c] for c in years_cols]
                 fig.add_trace(
                     go.Bar(
@@ -210,14 +219,35 @@ if "df_eua" in st.session_state:
                 yaxis_title="Valor (Customs Value, USD)",
                 plot_bgcolor="#DBF7FF",
                 paper_bgcolor="white",
-                width=1100,
-                height=500,
-                margin=dict(t=60, b=50, l=50, r=50),
-                legend_title="Linha",
+                height=450,
+                margin=dict(t=40, b=50, l=50, r=50),
+                legend_title="País" if country_col else "Linha",
             )
             fig.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
             fig.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_chart")
+
+        if country_col:
+            # Um gráfico por combinação das demais colunas de identificação
+            # (tipicamente, um gráfico por HTS selecionado), com legenda
+            # mostrando apenas o nome do país.
+            group_cols = [c for c in label_cols if c != country_col]
+            df_grafico["_rotulo"] = df_grafico[country_col].astype(str)
+
+            if group_cols:
+                df_grafico["_grupo"] = df_grafico.apply(lambda r: montar_rotulo(r, group_cols), axis=1)
+                grupos = df_grafico.drop_duplicates("_grupo").sort_values(
+                    "_valor_ranking", ascending=False
+                )["_grupo"].tolist()
+
+                for i, grupo in enumerate(grupos):
+                    st.markdown(f"**{grupo}**")
+                    df_plot = df_grafico[df_grafico["_grupo"] == grupo]
+                    desenhar_grafico(df_plot, grupo, key_prefix=f"grafico_{i}")
+            else:
+                desenhar_grafico(df_grafico, "Todos os HTS", key_prefix="grafico_unico")
         else:
-            st.info("Selecione ao menos uma linha para exibir o gráfico.")
+            # Sem quebra por país -- rótulo usa todas as colunas de identificação
+            df_grafico["_rotulo"] = df_grafico.apply(lambda r: montar_rotulo(r, label_cols), axis=1)
+            desenhar_grafico(df_grafico, "Todas as linhas", key_prefix="grafico_unico")
