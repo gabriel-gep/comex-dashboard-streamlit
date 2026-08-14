@@ -1,6 +1,6 @@
 import streamlit as st
 
-home_page = st.Page("app_home.py", title="Menu", icon="🧭", default=True)
+home_page = st.Page("app_home.py", title="Menu", icon="🌍", default=True)
 brasil_page = st.Page(
     "pages/1_Comex_Brasil.py", title="Comex Brasil", url_path="comex-brasil"
 )
