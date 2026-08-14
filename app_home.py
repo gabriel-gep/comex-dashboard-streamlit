@@ -29,7 +29,9 @@ with col1:
     with st.container(height=BLOCK_HEIGHT, border=False):
         st.markdown(
             f"""
-            <h3><img src="{FLAG_BR}" width="28" style="vertical-align:middle; margin-right:8px;">Brasil</h3>
+            <div style="font-size:1.5rem; font-weight:700; color:inherit; margin-bottom:0.5rem;">
+                <img src="{FLAG_BR}" width="28" style="vertical-align:middle; margin-right:8px;">Brasil
+            </div>
             """,
             unsafe_allow_html=True,
         )
@@ -47,7 +49,9 @@ with col2:
     with st.container(height=BLOCK_HEIGHT, border=False):
         st.markdown(
             f"""
-            <h3><img src="{FLAG_US}" width="28" style="vertical-align:middle; margin-right:8px;">Estados Unidos</h3>
+            <div style="font-size:1.5rem; font-weight:700; color:inherit; margin-bottom:0.5rem;">
+                <img src="{FLAG_US}" width="28" style="vertical-align:middle; margin-right:8px;">Estados Unidos
+            </div>
             """,
             unsafe_allow_html=True,
         )
