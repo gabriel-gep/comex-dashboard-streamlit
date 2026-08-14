@@ -15,7 +15,7 @@ import os
 
 
 
-st.set_page_config(page_title="Comex", page_icon="🌍", layout="wide")
+st.set_page_config(page_title="Comex Brasil", page_icon="🌍", layout="wide")
 
 
 #st.sidebar.image(img)
@@ -36,6 +36,12 @@ st.markdown(
     </h1>
     """,
     unsafe_allow_html=True
+)
+
+st.warning(
+    "**Fonte:** Comex Stat / MDIC (Ministério do Desenvolvimento, Indústria, "
+    "Comércio e Serviços) — dados oficiais de comércio exterior do Brasil. "
+    "Consulta atual cobre **Importações**, por NCM/Posição/Capítulo."
 )
 
 st.markdown("""
@@ -602,21 +608,10 @@ if "df" in st.session_state:
     else:
         tabela_combinada = st.session_state.tabela_combinada
 
-    st.markdown(
-    """
-    <div style="
-        background-color:#f9f9f9;
-        border-left: 6px solid #ffcc00;
-        padding: 15px;
-        margin-bottom: 20px;
-        font-size: 14px;
-    ">
-    ⚠️ <b>Disclaimer:</b> Os dados apresentados passaram por tratamento de outliers e, portanto, 
-    podem não refletir integralmente a realidade observada. Além disso, as informações dependem da 
-    disponibilidade e do histórico de dados fornecidos pela API do Comex Stat.
-    </div>
-    """,
-    unsafe_allow_html=True
+    st.warning(
+        "**Disclaimer:** Os dados apresentados passaram por tratamento de outliers e, portanto, "
+        "podem não refletir integralmente a realidade observada. Além disso, as informações dependem da "
+        "disponibilidade e do histórico de dados fornecidos pela API do Comex Stat."
     )
 
     #st.write(df1)
