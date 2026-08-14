@@ -23,7 +23,7 @@ jobs:
 
       - name: Rodar checagem e enviar alerta se necessário
         env:
-          TOKEN_GENERATED_ON: ${{ secrets.TOKEN_GENERATED_ON }}
+          TOKEN_EXPIRES_ON: ${{ secrets.TOKEN_EXPIRES_ON }}
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
