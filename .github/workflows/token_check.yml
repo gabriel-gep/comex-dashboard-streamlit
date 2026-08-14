@@ -1,0 +1,31 @@
+name: Check DataWeb Token Expiration
+
+on:
+  schedule:
+    # Roda todo dia às 12:00 UTC (~09:00 horário de Brasília)
+    - cron: "0 12 * * *"
+  workflow_dispatch: {}  # permite rodar manualmente pela aba Actions
+
+jobs:
+  check-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: pip install requests
+
+      - name: Rodar checagem e enviar alerta se necessário
+        env:
+          TOKEN_GENERATED_ON: ${{ secrets.TOKEN_GENERATED_ON }}
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+          WARN_DAYS_BEFORE: "15"
+        run: python check_token_expiration.py
