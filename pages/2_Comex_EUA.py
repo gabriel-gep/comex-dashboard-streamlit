@@ -322,7 +322,10 @@ if "df_eua_multi" in st.session_state:
 
         st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_chart")
 
-    def renderizar_medida(df, medida_label, tab_key):
+    def preparar_df_exibicao(df, medida_label):
+        """Aplica a mesma limpeza usada na exibição (remover/renomear
+        Quantity Description, adicionar coluna Total) -- reutilizada tanto
+        pela tabela em tela quanto pelos exports (CSV/Excel)."""
         periodo_cols = periodo_cols_de(df)
         eh_medida_valor = "Quantity" not in medida_label
 
@@ -330,14 +333,8 @@ if "df_eua_multi" in st.session_state:
 
         if "Quantity Description" in df_exibicao.columns:
             if eh_medida_valor:
-                # Na tabela de Valor, essa coluna só causa confusão (parece
-                # que o valor é "por unidade", mas é sempre o total em USD)
-                # -- remove.
                 df_exibicao = df_exibicao.drop(columns=["Quantity Description"])
             else:
-                # Na tabela de Quantidade, a unidade é informação útil para
-                # interpretar o número -- mantém, mas com nome mais claro e
-                # sem o prefixo "Value for:" (que só aparece na tabela de Valor).
                 df_exibicao["Quantity Description"] = (
                     df_exibicao["Quantity Description"]
                     .astype(str)
@@ -350,6 +347,9 @@ if "df_eua_multi" in st.session_state:
         if periodo_cols:
             df_exibicao["Total"] = df_exibicao[periodo_cols].sum(axis=1, skipna=True)
 
+        return df_exibicao, periodo_cols
+
+    def renderizar_medida(df, medida_label, tab_key, df_exibicao, periodo_cols):
         st.success(f"{len(df_exibicao)} linha(s) retornada(s).")
         st.dataframe(
             df_exibicao,
@@ -360,9 +360,11 @@ if "df_eua_multi" in st.session_state:
             },
         )
 
+        # Download individual (CSV) sempre disponível, mesmo com as duas
+        # métricas selecionadas -- útil se o usuário só quiser uma aba.
         csv = df_exibicao.to_csv(index=False).encode("utf-8")
         st.download_button(
-            "⬇️ Baixar CSV", csv, f"comex_eua_{tab_key}.csv", "text/csv",
+            f"⬇️ Baixar CSV — {label_pt(medida_label)}", csv, f"comex_eua_{tab_key}.csv", "text/csv",
             key=f"{tab_key}_download",
         )
 
@@ -420,10 +422,35 @@ if "df_eua_multi" in st.session_state:
             )
 
     if len(dfs_por_medida) > 1:
+        # Excel com uma aba por medida -- é o formato que suporta múltiplas
+        # abas de fato (CSV não suporta).
+        import io
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            for label, df in dfs_por_medida.items():
+                df_exibicao, _ = preparar_df_exibicao(df, label)
+                sheet_name = label_pt(label)[:31]  # limite do Excel
+                df_exibicao.to_excel(writer, sheet_name=sheet_name, index=False)
+        st.download_button(
+            "⬇️ Baixar Excel (Valor + Quantidade, abas separadas)",
+            buffer.getvalue(),
+            "comex_eua_valor_quantidade.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="excel_combinado_download",
+        )
+
         tabs = st.tabs([label_pt(label) for label in dfs_por_medida.keys()])
         for tab, (label, df) in zip(tabs, dfs_por_medida.items()):
             with tab:
-                renderizar_medida(df, label, tab_key=re.sub(r"\W+", "_", label.lower()))
+                df_exibicao, periodo_cols = preparar_df_exibicao(df, label)
+                renderizar_medida(
+                    df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
+                    df_exibicao=df_exibicao, periodo_cols=periodo_cols,
+                )
     else:
         label, df = next(iter(dfs_por_medida.items()))
-        renderizar_medida(df, label, tab_key=re.sub(r"\W+", "_", label.lower()))
+        df_exibicao, periodo_cols = preparar_df_exibicao(df, label)
+        renderizar_medida(
+            df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
+            df_exibicao=df_exibicao, periodo_cols=periodo_cols,
+        )
