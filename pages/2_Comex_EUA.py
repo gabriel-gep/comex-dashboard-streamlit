@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.colors as pcolors
 
 from dataweb_client import (
     build_import_query,
@@ -331,7 +332,7 @@ if "df_eua_multi" in st.session_state:
 
     if tem_valor and tem_qtd:
         metrica_grafico = st.radio(
-            "Métrica do gráfico", ["Valor (USD)", "Quantidade"],
+            "Métrica dos gráficos", ["Valor (USD)", "Quantidade"],
             horizontal=True, key="metrica_grafico_toggle",
         )
     elif tem_valor:
@@ -344,6 +345,61 @@ if "df_eua_multi" in st.session_state:
 
     if df_fonte is not None:
         periodo_cols = periodo_cols_de(df_fonte)
+        label_cols = [c for c in df_fonte.columns if c not in periodo_cols]
+
+        # Detecta a coluna de HTS (comparando com os códigos que o
+        # usuário informou nos filtros). Feito logo após o toggle de
+        # métrica, antes de qualquer gráfico -- deixa claro que a escolha
+        # vale para todos os gráficos abaixo.
+        hts_col = None
+        for c in label_cols:
+            valores = set(str(v) for v in df_fonte[c].dropna().unique())
+            if valores and valores.issubset(set(hts_codes)):
+                hts_col = c
+                break
+
+        hts_presentes = sorted(df_fonte[hts_col].dropna().unique()) if hts_col else []
+
+        # Misturar HTS diferentes na Quantidade não faz sentido -- as
+        # unidades de medida podem ser diferentes entre eles. Se houver
+        # mais de um HTS e a métrica for Quantidade, exige escolher um.
+        if hts_col and len(hts_presentes) > 1 and metrica_grafico == "Quantidade":
+            # Procura a coluna de descrição do produto pelo nome exato
+            # primeiro (é o mais confiável). Se não encontrar, cai para
+            # um fallback que EXCLUI colunas de país/via (que não são
+            # descrição, mesmo aparecendo antes na ordem das colunas).
+            if "Description" in df_fonte.columns:
+                desc_col = "Description"
+            else:
+                candidatos = [
+                    c for c in label_cols
+                    if c not in (hts_col, "Quantity Description")
+                ]
+                candidatos = [
+                    c for c in candidatos
+                    if df_fonte[c].dropna().astype(str).isin(COUNTRY_CODES.keys()).mean() < 0.5
+                    and df_fonte[c].dropna().astype(str).isin(DISTRICT_CODES.keys()).mean() < 0.5
+                ]
+                desc_col = candidatos[0] if candidatos else None
+
+            opcoes_hts = {}
+            for h in hts_presentes:
+                if desc_col:
+                    desc_vals = df_fonte.loc[df_fonte[hts_col] == h, desc_col].dropna().unique()
+                    desc = desc_vals[0] if len(desc_vals) else ""
+                    opcoes_hts[f"{h} — {desc}"[:80]] = h
+                else:
+                    opcoes_hts[h] = h
+
+            escolha_label = st.selectbox(
+                "HTS exibido nos gráficos (Quantidade não pode somar HTS com unidades diferentes)",
+                options=list(opcoes_hts.keys()),
+            )
+            hts_escolhido = opcoes_hts[escolha_label]
+            df_fonte_grafico = df_fonte[df_fonte[hts_col] == hts_escolhido]
+        else:
+            hts_escolhido = "todos"
+            df_fonte_grafico = df_fonte
 
         st.markdown(
             f"""
@@ -354,9 +410,9 @@ if "df_eua_multi" in st.session_state:
             unsafe_allow_html=True,
         )
 
-        if metrica_grafico == "Quantidade" and "Quantity Description" in df_fonte.columns:
+        if metrica_grafico == "Quantidade" and "Quantity Description" in df_fonte_grafico.columns:
             unidades = (
-                df_fonte["Quantity Description"]
+                df_fonte_grafico["Quantity Description"]
                 .dropna().astype(str)
                 .str.replace("Value for: ", "", regex=False)
                 .unique()
@@ -385,60 +441,6 @@ if "df_eua_multi" in st.session_state:
                 periodo_visivel = periodo_cols[idx_ini: idx_fim + 1]
             else:
                 periodo_visivel = periodo_cols
-
-            label_cols = [c for c in df_fonte.columns if c not in periodo_cols]
-
-            # Detecta a coluna de HTS (comparando com os códigos que o
-            # usuário informou nos filtros).
-            hts_col = None
-            for c in label_cols:
-                valores = set(str(v) for v in df_fonte[c].dropna().unique())
-                if valores and valores.issubset(set(hts_codes)):
-                    hts_col = c
-                    break
-
-            hts_presentes = sorted(df_fonte[hts_col].dropna().unique()) if hts_col else []
-
-            # Misturar HTS diferentes na Quantidade não faz sentido -- as
-            # unidades de medida podem ser diferentes entre eles. Se houver
-            # mais de um HTS e a métrica for Quantidade, exige escolher um.
-            if hts_col and len(hts_presentes) > 1 and metrica_grafico == "Quantidade":
-                # Procura a coluna de descrição do produto pelo nome exato
-                # primeiro (é o mais confiável). Se não encontrar, cai para
-                # um fallback que EXCLUI colunas de país/via (que não são
-                # descrição, mesmo aparecendo antes na ordem das colunas).
-                if "Description" in df_fonte.columns:
-                    desc_col = "Description"
-                else:
-                    candidatos = [
-                        c for c in label_cols
-                        if c not in (hts_col, "Quantity Description")
-                    ]
-                    candidatos = [
-                        c for c in candidatos
-                        if df_fonte[c].dropna().astype(str).isin(COUNTRY_CODES.keys()).mean() < 0.5
-                        and df_fonte[c].dropna().astype(str).isin(DISTRICT_CODES.keys()).mean() < 0.5
-                    ]
-                    desc_col = candidatos[0] if candidatos else None
-
-                opcoes_hts = {}
-                for h in hts_presentes:
-                    if desc_col:
-                        desc_vals = df_fonte.loc[df_fonte[hts_col] == h, desc_col].dropna().unique()
-                        desc = desc_vals[0] if len(desc_vals) else ""
-                        opcoes_hts[f"{h} — {desc}"[:80]] = h
-                    else:
-                        opcoes_hts[h] = h
-
-                escolha_label = st.selectbox(
-                    "HTS exibido nos gráficos (Quantidade não pode somar HTS com unidades diferentes)",
-                    options=list(opcoes_hts.keys()),
-                )
-                hts_escolhido = opcoes_hts[escolha_label]
-                df_fonte_grafico = df_fonte[df_fonte[hts_col] == hts_escolhido]
-            else:
-                hts_escolhido = "todos"
-                df_fonte_grafico = df_fonte
 
             # Detecta a coluna de via/distrito para quebrar os gráficos
             via_col = None
@@ -559,6 +561,8 @@ if "df_eua_multi" in st.session_state:
                     st.session_state[ms_key2] = top5_default
                     st.session_state[reset_flag_key2] = False
 
+                MAX_VIAS_GRAFICO2 = 12
+
                 col_label2, col_btn2 = st.columns([5, 1])
                 with col_label2:
                     st.markdown("**Vias exibidas**")
@@ -573,13 +577,19 @@ if "df_eua_multi" in st.session_state:
                     default=top5_default,
                     key=ms_key2,
                     label_visibility="collapsed",
+                    max_selections=MAX_VIAS_GRAFICO2,
+                )
+                st.caption(
+                    f"Máximo de {MAX_VIAS_GRAFICO2} vias por vez neste gráfico, "
+                    "para manter as cores e a leitura claras."
                 )
 
                 if not vias_selecionadas2:
                     st.info("Selecione ao menos uma via para exibir o gráfico.")
                 else:
+                    paleta = pcolors.qualitative.Alphabet
                     fig2 = go.Figure()
-                    for via in vias_selecionadas2:
+                    for i, via in enumerate(vias_selecionadas2):
                         row = df_via[df_via[via_col] == via].iloc[0]
                         valores = [row[c] for c in periodo_visivel2]
                         fig2.add_trace(
@@ -587,6 +597,7 @@ if "df_eua_multi" in st.session_state:
                                 x=periodo_visivel2,
                                 y=valores,
                                 name=str(via),
+                                marker_color=paleta[i % len(paleta)],
                                 hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                             )
                         )
