@@ -389,10 +389,24 @@ if "df_eua_multi" in st.session_state:
             # unidades de medida podem ser diferentes entre eles. Se houver
             # mais de um HTS e a métrica for Quantidade, exige escolher um.
             if hts_col and len(hts_presentes) > 1 and metrica_grafico == "Quantidade":
-                desc_col = next(
-                    (c for c in label_cols if c not in (hts_col, "Quantity Description")),
-                    None,
-                )
+                # Procura a coluna de descrição do produto pelo nome exato
+                # primeiro (é o mais confiável). Se não encontrar, cai para
+                # um fallback que EXCLUI colunas de país/via (que não são
+                # descrição, mesmo aparecendo antes na ordem das colunas).
+                if "Description" in df_fonte.columns:
+                    desc_col = "Description"
+                else:
+                    candidatos = [
+                        c for c in label_cols
+                        if c not in (hts_col, "Quantity Description")
+                    ]
+                    candidatos = [
+                        c for c in candidatos
+                        if df_fonte[c].dropna().astype(str).isin(COUNTRY_CODES.keys()).mean() < 0.5
+                        and df_fonte[c].dropna().astype(str).isin(DISTRICT_CODES.keys()).mean() < 0.5
+                    ]
+                    desc_col = candidatos[0] if candidatos else None
+
                 opcoes_hts = {}
                 for h in hts_presentes:
                     if desc_col:
