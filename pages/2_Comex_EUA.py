@@ -21,6 +21,15 @@ from dataweb_client import (
     DISTRICT_CODES,
 )
 
+# Tradução dos rótulos de medida que vêm da API (em inglês) para exibição
+TABLE_LABEL_PT = {
+    "Customs Value": "Valor (USD)",
+    "First Unit of Quantity": "Quantidade",
+}
+
+def label_pt(label_original: str) -> str:
+    return TABLE_LABEL_PT.get(label_original, label_original)
+
 st.set_page_config(page_title="Comex EUA", page_icon="🌍", layout="wide")
 
 st.markdown(
@@ -169,10 +178,21 @@ if buscar:
                         .str.strip()
                         .replace({"": None, "nan": None})
                     )
-                    df_i[col] = pd.to_numeric(df_i[col], errors="coerce")
+                    # Valores ausentes (None) representam ausência de
+                    # comércio registrado no período -- equivalem a 0.
+                    df_i[col] = pd.to_numeric(df_i[col], errors="coerce").fillna(0)
 
                 if monthly:
                     df_i = reshape_monthly_timeline(df_i, year_col="Year")
+                    # Após "achatar" para linha do tempo, garante que
+                    # nenhuma coluna de período tenha ficado com NaN
+                    # (pode acontecer se algum mês/ano não tinha linha
+                    # correspondente para o grupo).
+                    periodo_cols_flat = [
+                        c for c in df_i.columns
+                        if re.match(r"^[A-Za-zçã]{3}/\d{4}$", str(c))
+                    ]
+                    df_i[periodo_cols_flat] = df_i[periodo_cols_flat].fillna(0)
 
                 dfs_por_medida[label] = df_i
         except Exception as e:
@@ -304,8 +324,29 @@ if "df_eua_multi" in st.session_state:
 
     def renderizar_medida(df, medida_label, tab_key):
         periodo_cols = periodo_cols_de(df)
+        eh_medida_valor = "Quantity" not in medida_label
 
         df_exibicao = df.copy()
+
+        if "Quantity Description" in df_exibicao.columns:
+            if eh_medida_valor:
+                # Na tabela de Valor, essa coluna só causa confusão (parece
+                # que o valor é "por unidade", mas é sempre o total em USD)
+                # -- remove.
+                df_exibicao = df_exibicao.drop(columns=["Quantity Description"])
+            else:
+                # Na tabela de Quantidade, a unidade é informação útil para
+                # interpretar o número -- mantém, mas com nome mais claro e
+                # sem o prefixo "Value for:" (que só aparece na tabela de Valor).
+                df_exibicao["Quantity Description"] = (
+                    df_exibicao["Quantity Description"]
+                    .astype(str)
+                    .str.replace("Value for: ", "", regex=False)
+                )
+                df_exibicao = df_exibicao.rename(
+                    columns={"Quantity Description": "Unidade de Medida"}
+                )
+
         if periodo_cols:
             df_exibicao["Total"] = df_exibicao[periodo_cols].sum(axis=1, skipna=True)
 
@@ -331,7 +372,7 @@ if "df_eua_multi" in st.session_state:
         st.markdown(
             f"""
             <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                {medida_label} — {'Linha do Tempo' if monthly else 'Por Ano'}
+                {label_pt(medida_label)} — {'Linha do Tempo' if monthly else 'Por Ano'}
             </h2>
             """,
             unsafe_allow_html=True,
@@ -347,7 +388,7 @@ if "df_eua_multi" in st.session_state:
         df_grafico = df.copy()
         df_grafico["_valor_ranking"] = df_grafico[periodo_cols].sum(axis=1, skipna=True)
 
-        unidade_eixo = "Valor (Customs Value, USD)" if "Quantity" not in medida_label else "Quantidade"
+        unidade_eixo = "Valor (USD)" if "Quantity" not in medida_label else "Quantidade"
 
         if quebra_col:
             group_cols = [c for c in label_cols_chart if c != quebra_col]
@@ -379,7 +420,7 @@ if "df_eua_multi" in st.session_state:
             )
 
     if len(dfs_por_medida) > 1:
-        tabs = st.tabs(list(dfs_por_medida.keys()))
+        tabs = st.tabs([label_pt(label) for label in dfs_por_medida.keys()])
         for tab, (label, df) in zip(tabs, dfs_por_medida.items()):
             with tab:
                 renderizar_medida(df, label, tab_key=re.sub(r"\W+", "_", label.lower()))
