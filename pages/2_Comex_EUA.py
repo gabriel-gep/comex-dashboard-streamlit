@@ -73,20 +73,22 @@ _raw_lines = [c.strip() for c in hts_input.splitlines() if c.strip()]
 hts_codes = [re.sub(r"[^0-9]", "", line) for line in _raw_lines]
 hts_codes = [c for c in hts_codes if c]
 
-st.sidebar.markdown("**Métrica(s)**")
-metrica_valor = st.sidebar.checkbox("Valor (USD)", value=True)
-metrica_quantidade = st.sidebar.checkbox("Quantidade", value=False)
-
 aggregate_commodities = st.sidebar.checkbox(
     "Agregar todos os HTS numa única linha",
     value=False,
-    disabled=metrica_quantidade,
+    key="aggregate_commodities_checkbox",
+    disabled=st.session_state.get("metrica_quantidade_checkbox", False),
     help=(
         "Desativado quando 'Quantidade' está marcada: HTS diferentes podem "
         "ter unidades de medida diferentes (kg, toneladas etc.), e somar "
         "isso na origem geraria um número sem sentido."
     ),
 )
+
+st.sidebar.markdown("**Métrica(s)**")
+metrica_valor = st.sidebar.checkbox("Valor (USD)", value=True, key="metrica_valor_checkbox")
+metrica_quantidade = st.sidebar.checkbox("Quantidade", value=False, key="metrica_quantidade_checkbox")
+
 if metrica_quantidade:
     aggregate_commodities = False
 
@@ -115,7 +117,10 @@ districts = st.sidebar.multiselect(
 )
 aggregate_districts = st.sidebar.checkbox("Agregar todas as vias", value=True)
 
-buscar = st.sidebar.button("Buscar dados")
+buscar = st.sidebar.button(
+    "Buscar dados",
+    disabled=not (metrica_valor or metrica_quantidade),
+)
 
 # --------------------------------------------------------------------
 # Token vem dos secrets, sem alerta visual (monitoramento é feito
