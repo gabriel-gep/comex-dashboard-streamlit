@@ -216,112 +216,6 @@ if "df_eua_multi" in st.session_state:
             return [c for c in df.columns if re.match(r"^[A-Za-zçã]{3}/\d{4}$", str(c))]
         return [c for c in years if c in df.columns]
 
-    def detectar_coluna_quebra(df, label_cols):
-        """Detecta se alguma coluna representa país OU via/distrito,
-        comparando os valores com as listas conhecidas."""
-        melhor = (None, None, 0.0)  # (coluna, tipo, proporção)
-        for c in label_cols:
-            valores = df[c].dropna().astype(str)
-            if len(valores) == 0:
-                continue
-            prop_pais = valores.isin(COUNTRY_CODES.keys()).mean()
-            prop_via = valores.isin(DISTRICT_CODES.keys()).mean()
-            if prop_pais > melhor[2] and prop_pais >= 0.5:
-                melhor = (c, "País", prop_pais)
-            if prop_via > melhor[2] and prop_via >= 0.5:
-                melhor = (c, "Via", prop_via)
-        return melhor[0], melhor[1]
-
-    def montar_rotulo(row, cols):
-        partes = [
-            str(row[c]) for c in cols
-            if str(row[c]).strip() not in ("", "nan", "None")
-        ]
-        return " – ".join(partes) if partes else "Total"
-
-    def desenhar_grafico(df_plot, periodo_cols, titulo, key_prefix, legenda_longa, legend_title, unidade):
-        todos_rotulos = df_plot.sort_values("_valor_ranking", ascending=False)["_rotulo"].tolist()
-        top5_default = todos_rotulos[:5]
-
-        ms_key = f"{key_prefix}_multiselect"
-        reset_flag_key = f"{key_prefix}_reset_flag"
-
-        if st.session_state.get(reset_flag_key):
-            st.session_state[ms_key] = top5_default
-            st.session_state[reset_flag_key] = False
-
-        col_label, col_btn = st.columns([5, 1])
-        with col_label:
-            st.markdown(f"**Linhas exibidas — {titulo}**")
-        with col_btn:
-            if st.button("🔝 Restaurar Top 5", key=f"{key_prefix}_reset_btn", use_container_width=True):
-                st.session_state[reset_flag_key] = True
-                st.rerun()
-
-        rotulos_selecionados = st.multiselect(
-            "Linhas exibidas",
-            options=todos_rotulos,
-            default=top5_default,
-            key=ms_key,
-            label_visibility="collapsed",
-        )
-
-        if not rotulos_selecionados:
-            st.info("Selecione ao menos uma linha para exibir o gráfico.")
-            return
-
-        df_sel = df_plot[df_plot["_rotulo"].isin(rotulos_selecionados)]
-
-        fig = go.Figure()
-        modo = "lines+markers" if monthly else None
-        for _, row in df_sel.iterrows():
-            valores = [row[c] for c in periodo_cols]
-            if monthly:
-                fig.add_trace(
-                    go.Scatter(
-                        x=periodo_cols,
-                        y=valores,
-                        mode="lines+markers",
-                        name=row["_rotulo"],
-                        hovertemplate="%{x}<br>Valor: %{y:,.0f}<extra></extra>",
-                    )
-                )
-            else:
-                fig.add_trace(
-                    go.Bar(
-                        x=periodo_cols,
-                        y=valores,
-                        name=row["_rotulo"],
-                        hovertemplate="Ano: %{x}<br>Valor: %{y:,.0f}<extra></extra>",
-                    )
-                )
-
-        if legenda_longa:
-            legend_config = dict(
-                orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5,
-                font=dict(size=10),
-            )
-            margin_config = dict(t=40, b=160, l=50, r=50)
-        else:
-            legend_config = dict()
-            margin_config = dict(t=40, b=50, l=50, r=50)
-
-        fig.update_layout(
-            barmode="group" if not monthly else None,
-            xaxis_title="Período" if monthly else "Ano",
-            yaxis_title=unidade,
-            plot_bgcolor="#DBF7FF",
-            paper_bgcolor="white",
-            height=450 if not legenda_longa else 550,
-            margin=margin_config,
-            legend_title=legend_title,
-            legend=legend_config,
-        )
-        fig.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-        fig.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-
-        st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_chart")
-
     def preparar_df_exibicao(df, medida_label):
         """Aplica a mesma limpeza usada na exibição (remover/renomear
         Quantity Description, adicionar coluna Total) -- reutilizada tanto
@@ -382,56 +276,6 @@ if "df_eua_multi" in st.session_state:
         if not periodo_cols:
             return
 
-        st.markdown(
-            f"""
-            <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                {label_pt(medida_label)} — {'Linha do Tempo' if monthly else 'Por Ano'}
-            </h2>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        label_cols = [c for c in df.columns if c not in periodo_cols]
-        # "Quantity Description" é metadado (unidade de medida), não uma
-        # dimensão de quebra útil para agrupar/legendar.
-        label_cols_chart = [c for c in label_cols if c != "Quantity Description"]
-
-        quebra_col, quebra_tipo = detectar_coluna_quebra(df, label_cols_chart)
-
-        df_grafico = df.copy()
-        df_grafico["_valor_ranking"] = df_grafico[periodo_cols].sum(axis=1, skipna=True)
-
-        unidade_eixo = "Valor (USD)" if "Quantity" not in medida_label else "Quantidade"
-
-        if quebra_col:
-            group_cols = [c for c in label_cols_chart if c != quebra_col]
-            df_grafico["_rotulo"] = df_grafico[quebra_col].astype(str)
-
-            if group_cols:
-                df_grafico["_grupo"] = df_grafico.apply(lambda r: montar_rotulo(r, group_cols), axis=1)
-                grupos = df_grafico.drop_duplicates("_grupo").sort_values(
-                    "_valor_ranking", ascending=False
-                )["_grupo"].tolist()
-
-                for i, grupo in enumerate(grupos):
-                    st.markdown(f"**{grupo}**")
-                    df_plot = df_grafico[df_grafico["_grupo"] == grupo]
-                    desenhar_grafico(
-                        df_plot, periodo_cols, grupo, key_prefix=f"{tab_key}_grafico_{i}",
-                        legenda_longa=False, legend_title=quebra_tipo, unidade=unidade_eixo,
-                    )
-            else:
-                desenhar_grafico(
-                    df_grafico, periodo_cols, "Todos os HTS", key_prefix=f"{tab_key}_grafico_unico",
-                    legenda_longa=False, legend_title=quebra_tipo, unidade=unidade_eixo,
-                )
-        else:
-            df_grafico["_rotulo"] = df_grafico.apply(lambda r: montar_rotulo(r, label_cols_chart), axis=1)
-            desenhar_grafico(
-                df_grafico, periodo_cols, "Todas as linhas", key_prefix=f"{tab_key}_grafico_unico",
-                legenda_longa=True, legend_title="Linha", unidade=unidade_eixo,
-            )
-
     if len(dfs_por_medida) > 1:
         # Excel com uma aba por medida -- é o formato que suporta múltiplas
         # abas de fato (CSV não suporta). Gerado uma vez, reutilizado nos
@@ -461,3 +305,160 @@ if "df_eua_multi" in st.session_state:
             df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
             df_exibicao=df_exibicao, periodo_cols=periodo_cols,
         )
+
+    # ----------------------------------------------------------------
+    # Gráficos -- um por via de entrada (default: top 5), com slicer de
+    # período e botão para trocar entre Valor e Quantidade.
+    # ----------------------------------------------------------------
+    st.divider()
+
+    tem_valor = "Customs Value" in dfs_por_medida
+    tem_qtd = "First Unit of Quantity" in dfs_por_medida
+
+    if tem_valor and tem_qtd:
+        metrica_grafico = st.radio(
+            "Métrica do gráfico", ["Valor (USD)", "Quantidade"],
+            horizontal=True, key="metrica_grafico_toggle",
+        )
+    elif tem_valor:
+        metrica_grafico = "Valor (USD)"
+    else:
+        metrica_grafico = "Quantidade"
+
+    chave_medida = "Customs Value" if metrica_grafico == "Valor (USD)" else "First Unit of Quantity"
+    df_fonte = dfs_por_medida.get(chave_medida)
+
+    if df_fonte is not None:
+        periodo_cols = periodo_cols_de(df_fonte)
+
+        st.markdown(
+            f"""
+            <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
+                Volume Importado em {metrica_grafico}: Realizado vs Projetado
+            </h2>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if metrica_grafico == "Quantidade" and "Quantity Description" in df_fonte.columns:
+            unidades = (
+                df_fonte["Quantity Description"]
+                .dropna().astype(str)
+                .str.replace("Value for: ", "", regex=False)
+                .unique()
+            )
+            unidades_txt = ", ".join(sorted(u for u in unidades if u and u != "nan"))
+            if unidades_txt:
+                st.markdown(
+                    f"<p style='text-align:center; font-size:0.85rem; color:#666;'>"
+                    f"Unidade de medida: {unidades_txt}</p>",
+                    unsafe_allow_html=True,
+                )
+
+        if not periodo_cols:
+            st.info("Sem colunas de período disponíveis para exibir gráficos.")
+        else:
+            # Slicer -- limita o período exibido nos gráficos, dentro do
+            # intervalo já consultado.
+            if len(periodo_cols) > 1:
+                periodo_inicio, periodo_fim = st.select_slider(
+                    "Período exibido nos gráficos",
+                    options=periodo_cols,
+                    value=(periodo_cols[0], periodo_cols[-1]),
+                )
+                idx_ini = periodo_cols.index(periodo_inicio)
+                idx_fim = periodo_cols.index(periodo_fim)
+                periodo_visivel = periodo_cols[idx_ini: idx_fim + 1]
+            else:
+                periodo_visivel = periodo_cols
+
+            # Detecta a coluna de via/distrito para quebrar os gráficos
+            label_cols = [c for c in df_fonte.columns if c not in periodo_cols]
+            via_col = None
+            for c in label_cols:
+                valores = df_fonte[c].dropna().astype(str)
+                if len(valores) == 0:
+                    continue
+                if valores.isin(DISTRICT_CODES.keys()).mean() >= 0.5:
+                    via_col = c
+                    break
+
+            if via_col:
+                df_via = (
+                    df_fonte.groupby(via_col, as_index=False)[periodo_cols]
+                    .sum(min_count=1)
+                )
+                df_via["_total"] = df_via[periodo_cols].sum(axis=1, skipna=True)
+                df_via = df_via.sort_values("_total", ascending=False)
+                todas_vias = df_via[via_col].tolist()
+                top5_default = todas_vias[:5]
+
+                ms_key = "vias_grafico_multiselect"
+                reset_flag_key = "vias_grafico_reset_flag"
+                if st.session_state.get(reset_flag_key):
+                    st.session_state[ms_key] = top5_default
+                    st.session_state[reset_flag_key] = False
+
+                col_label, col_btn = st.columns([5, 1])
+                with col_label:
+                    st.markdown("**Vias exibidas**")
+                with col_btn:
+                    if st.button("🔝 Restaurar Top 5", key="vias_grafico_reset_btn", use_container_width=True):
+                        st.session_state[reset_flag_key] = True
+                        st.rerun()
+
+                vias_selecionadas = st.multiselect(
+                    "Vias exibidas",
+                    options=todas_vias,
+                    default=top5_default,
+                    key=ms_key,
+                    label_visibility="collapsed",
+                )
+
+                if not vias_selecionadas:
+                    st.info("Selecione ao menos uma via para exibir os gráficos.")
+                else:
+                    cols_por_linha = 2
+                    for i in range(0, len(vias_selecionadas), cols_por_linha):
+                        cols = st.columns(cols_por_linha)
+                        for j, via in enumerate(vias_selecionadas[i:i + cols_por_linha]):
+                            with cols[j]:
+                                row = df_via[df_via[via_col] == via].iloc[0]
+                                valores = [row[c] for c in periodo_visivel]
+
+                                fig = go.Figure()
+                                if monthly:
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=periodo_visivel, y=valores,
+                                            mode="lines+markers", name="Realizado",
+                                            line=dict(color="blue"),
+                                            hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                                        )
+                                    )
+                                else:
+                                    fig.add_trace(
+                                        go.Bar(
+                                            x=periodo_visivel, y=valores,
+                                            name="Realizado", marker_color="blue",
+                                            hovertemplate="Ano: %{x}<br>%{y:,.0f}<extra></extra>",
+                                        )
+                                    )
+                                fig.update_layout(
+                                    title=str(via),
+                                    height=320,
+                                    plot_bgcolor="#DBF7FF",
+                                    paper_bgcolor="white",
+                                    margin=dict(t=50, b=40, l=40, r=20),
+                                    showlegend=False,
+                                )
+                                fig.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                fig.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                chart_key = "via_chart_" + re.sub(r"\W+", "_", str(via).lower())
+                                st.plotly_chart(fig, use_container_width=True, key=chart_key)
+            else:
+                st.info(
+                    "Nenhuma quebra por via de entrada detectada nos dados atuais "
+                    "-- marque 'Via de entrada' nos filtros e desmarque 'Agregar "
+                    "todas as vias' para ver os gráficos por via."
+                )
