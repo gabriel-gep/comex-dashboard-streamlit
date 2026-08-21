@@ -118,18 +118,6 @@ TOKEN = st.secrets.get("DATAWEB_TOKEN")
 # Execução da consulta
 # --------------------------------------------------------------------
 if buscar:
-    # Limpa o estado dos filtros de gráfico (seleção de vias, métrica,
-    # HTS escolhido) toda vez que uma nova busca é feita -- senão o
-    # Streamlit mantém a seleção antiga e ignora o novo "top 5" calculado
-    # para os dados recém-consultados.
-    for chave in [
-        "vias_grafico_multiselect",
-        "vias_grafico_reset_flag",
-        "metrica_grafico_toggle",
-    ]:
-        if chave in st.session_state:
-            del st.session_state[chave]
-
     if not TOKEN:
         st.error(
             "Token da API DataWeb não configurado. Adicione `DATAWEB_TOKEN` "
@@ -435,6 +423,7 @@ if "df_eua_multi" in st.session_state:
                 hts_escolhido = opcoes_hts[escolha_label]
                 df_fonte_grafico = df_fonte[df_fonte[hts_col] == hts_escolhido]
             else:
+                hts_escolhido = "todos"
                 df_fonte_grafico = df_fonte
 
             # Detecta a coluna de via/distrito para quebrar os gráficos
@@ -458,8 +447,9 @@ if "df_eua_multi" in st.session_state:
                 top5_default = sorted(todas_vias[:5])
                 todas_vias_alfa = sorted(todas_vias)
 
-                ms_key = "vias_grafico_multiselect"
-                reset_flag_key = "vias_grafico_reset_flag"
+                combo_id = re.sub(r"\W+", "_", f"{metrica_grafico}_{hts_escolhido}".lower())
+                ms_key = f"vias_grafico_multiselect_{combo_id}"
+                reset_flag_key = f"vias_grafico_reset_flag_{combo_id}"
                 if st.session_state.get(reset_flag_key):
                     st.session_state[ms_key] = top5_default
                     st.session_state[reset_flag_key] = False
@@ -468,7 +458,7 @@ if "df_eua_multi" in st.session_state:
                 with col_label:
                     st.markdown("**Vias exibidas**")
                 with col_btn:
-                    if st.button("🔝 Restaurar Top 5", key="vias_grafico_reset_btn", use_container_width=True):
+                    if st.button("🔝 Restaurar Top 5", key=f"vias_grafico_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key] = True
                         st.rerun()
 
