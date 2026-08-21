@@ -360,14 +360,10 @@ if "df_eua_multi" in st.session_state:
 
         hts_presentes = sorted(df_fonte[hts_col].dropna().unique()) if hts_col else []
 
-        # Misturar HTS diferentes na Quantidade não faz sentido -- as
-        # unidades de medida podem ser diferentes entre eles. Se houver
-        # mais de um HTS e a métrica for Quantidade, exige escolher um.
-        if hts_col and len(hts_presentes) > 1 and metrica_grafico == "Quantidade":
-            # Procura a coluna de descrição do produto pelo nome exato
-            # primeiro (é o mais confiável). Se não encontrar, cai para
-            # um fallback que EXCLUI colunas de país/via (que não são
-            # descrição, mesmo aparecendo antes na ordem das colunas).
+        # Rótulo amigável (código + descrição) por HTS, reaproveitado tanto
+        # no seletor quanto na legenda mostrada embaixo dos títulos.
+        hts_labels = {}
+        if hts_col:
             if "Description" in df_fonte.columns:
                 desc_col = "Description"
             else:
@@ -382,24 +378,67 @@ if "df_eua_multi" in st.session_state:
                 ]
                 desc_col = candidatos[0] if candidatos else None
 
-            opcoes_hts = {}
             for h in hts_presentes:
                 if desc_col:
                     desc_vals = df_fonte.loc[df_fonte[hts_col] == h, desc_col].dropna().unique()
                     desc = desc_vals[0] if len(desc_vals) else ""
-                    opcoes_hts[f"{h} — {desc}"[:80]] = h
+                    hts_labels[h] = f"{h} — {desc}"[:80]
                 else:
-                    opcoes_hts[h] = h
+                    hts_labels[h] = h
+
+        # Seleção de HTS -- disponível para as duas métricas quando há mais
+        # de um HTS na consulta. Em Valor, inclui a opção "Total" (soma de
+        # todos). Em Quantidade, não -- HTS diferentes podem ter unidades
+        # de medida diferentes, então é preciso escolher um por vez.
+        TOTAL_LABEL = "Total (soma de todos os HTS)"
+        if hts_col and len(hts_presentes) > 1:
+            opcoes_hts = {hts_labels[h]: h for h in hts_presentes}
+            if metrica_grafico == "Valor (USD)":
+                opcoes_ordenadas = [TOTAL_LABEL] + list(opcoes_hts.keys())
+            else:
+                opcoes_ordenadas = list(opcoes_hts.keys())
 
             escolha_label = st.selectbox(
-                "HTS exibido nos gráficos (Quantidade não pode somar HTS com unidades diferentes)",
-                options=list(opcoes_hts.keys()),
+                "HTS exibido nos gráficos",
+                options=opcoes_ordenadas,
+                help=(
+                    "Em Quantidade não é possível somar HTS diferentes -- "
+                    "as unidades de medida podem não ser as mesmas."
+                ),
             )
-            hts_escolhido = opcoes_hts[escolha_label]
-            df_fonte_grafico = df_fonte[df_fonte[hts_col] == hts_escolhido]
+            if escolha_label == TOTAL_LABEL:
+                hts_escolhido = None
+                df_fonte_grafico = df_fonte
+            else:
+                hts_escolhido = opcoes_hts[escolha_label]
+                df_fonte_grafico = df_fonte[df_fonte[hts_col] == hts_escolhido]
         else:
-            hts_escolhido = "todos"
+            hts_escolhido = None
             df_fonte_grafico = df_fonte
+
+        def legenda_unidade_hts():
+            """Mostra, embaixo do título de cada gráfico, a unidade de
+            medida (quando Quantidade) e qual HTS está sendo exibido
+            (quando um HTS específico foi escolhido, não o Total)."""
+            linhas = []
+            if metrica_grafico == "Quantidade" and "Quantity Description" in df_fonte_grafico.columns:
+                unidades = (
+                    df_fonte_grafico["Quantity Description"]
+                    .dropna().astype(str)
+                    .str.replace("Value for: ", "", regex=False)
+                    .unique()
+                )
+                unidades_txt = ", ".join(sorted(u for u in unidades if u and u != "nan"))
+                if unidades_txt:
+                    linhas.append(f"Unidade de medida: {unidades_txt}")
+            if hts_escolhido is not None:
+                linhas.append(f"HTS exibido: {hts_labels.get(hts_escolhido, hts_escolhido)}")
+            if linhas:
+                st.markdown(
+                    f"<p style='text-align:center; font-size:0.85rem; color:#666;'>"
+                    f"{' · '.join(linhas)}</p>",
+                    unsafe_allow_html=True,
+                )
 
         st.markdown(
             f"""
@@ -409,21 +448,7 @@ if "df_eua_multi" in st.session_state:
             """,
             unsafe_allow_html=True,
         )
-
-        if metrica_grafico == "Quantidade" and "Quantity Description" in df_fonte_grafico.columns:
-            unidades = (
-                df_fonte_grafico["Quantity Description"]
-                .dropna().astype(str)
-                .str.replace("Value for: ", "", regex=False)
-                .unique()
-            )
-            unidades_txt = ", ".join(sorted(u for u in unidades if u and u != "nan"))
-            if unidades_txt:
-                st.markdown(
-                    f"<p style='text-align:center; font-size:0.85rem; color:#666;'>"
-                    f"Unidade de medida: {unidades_txt}</p>",
-                    unsafe_allow_html=True,
-                )
+        legenda_unidade_hts()
 
         if not periodo_cols:
             st.info("Sem colunas de período disponíveis para exibir gráficos.")
@@ -463,7 +488,7 @@ if "df_eua_multi" in st.session_state:
                 top5_default = sorted(todas_vias[:5])
                 todas_vias_alfa = sorted(todas_vias)
 
-                combo_id = re.sub(r"\W+", "_", f"{metrica_grafico}_{hts_escolhido}".lower())
+                combo_id = re.sub(r"\W+", "_", f"{metrica_grafico}_{hts_escolhido or 'total'}".lower())
                 ms_key = f"vias_grafico_multiselect_{combo_id}"
                 reset_flag_key = f"vias_grafico_reset_flag_{combo_id}"
                 if st.session_state.get(reset_flag_key):
@@ -541,6 +566,7 @@ if "df_eua_multi" in st.session_state:
                     """,
                     unsafe_allow_html=True,
                 )
+                legenda_unidade_hts()
 
                 if len(periodo_cols) > 1:
                     periodo2_inicio, periodo2_fim = st.select_slider(
@@ -639,6 +665,7 @@ if "df_eua_multi" in st.session_state:
                 """,
                 unsafe_allow_html=True,
             )
+            legenda_unidade_hts()
 
             country_col = None
             for c in label_cols:
@@ -673,45 +700,81 @@ if "df_eua_multi" in st.session_state:
                 total_geral = df_pais["_valor"].sum()
 
                 if total_geral and total_geral > 0:
-                    top5_paises = df_pais.head(5).copy()
-                    resto_valor = df_pais["_valor"].iloc[5:].sum()
+                    todos_paises = df_pais[country_col].tolist()
+                    top5_default3 = sorted(todos_paises[:5])
+                    todos_paises_alfa = sorted(todos_paises)
 
-                    labels = top5_paises[country_col].tolist()
-                    valores_abs = top5_paises["_valor"].tolist()
-                    if resto_valor > 0:
-                        labels.append("Outros")
-                        valores_abs.append(resto_valor)
+                    ms_key3 = f"paises_grafico3_multiselect_{combo_id}"
+                    reset_flag_key3 = f"paises_grafico3_reset_flag_{combo_id}"
+                    if st.session_state.get(reset_flag_key3):
+                        st.session_state[ms_key3] = top5_default3
+                        st.session_state[reset_flag_key3] = False
 
-                    percentuais = [v / total_geral * 100 for v in valores_abs]
+                    col_label3, col_btn3 = st.columns([5, 1])
+                    with col_label3:
+                        st.markdown("**Países exibidos**")
+                    with col_btn3:
+                        if st.button("🔝 Restaurar Top 5", key=f"paises_grafico3_reset_btn_{combo_id}", use_container_width=True):
+                            st.session_state[reset_flag_key3] = True
+                            st.rerun()
 
-                    paleta = pcolors.qualitative.Alphabet
-                    cores = [paleta[i % len(paleta)] for i in range(len(labels))]
-                    if "Outros" in labels:
-                        cores[labels.index("Outros")] = "#E4572E"  # vermelho, destacando "Outros"
+                    paises_selecionados = st.multiselect(
+                        "Países exibidos neste gráfico",
+                        options=todos_paises_alfa,
+                        default=top5_default3,
+                        key=ms_key3,
+                        label_visibility="collapsed",
+                        max_selections=12,
+                    )
+                    st.caption(
+                        "O restante dos países não selecionados aqui entra "
+                        "somado na barra \"Outros\". Máximo de 12 países por vez."
+                    )
 
-                    fig3 = go.Figure(
-                        go.Bar(
-                            x=labels,
-                            y=percentuais,
-                            marker_color=cores,
-                            text=[f"{p:.1f}%" for p in percentuais],
-                            textposition="outside",
-                            hovertemplate="%{x}<br>%{y:.2f}%<extra></extra>",
+                    if not paises_selecionados:
+                        st.info("Selecione ao menos um país para exibir o gráfico.")
+                    else:
+                        df_selecionados = df_pais[df_pais[country_col].isin(paises_selecionados)]
+                        df_selecionados = df_selecionados.sort_values("_valor", ascending=False)
+
+                        labels = df_selecionados[country_col].tolist()
+                        valores_abs = df_selecionados["_valor"].tolist()
+
+                        resto_valor = total_geral - sum(valores_abs)
+                        if resto_valor > 0:
+                            labels.append("Outros")
+                            valores_abs.append(resto_valor)
+
+                        percentuais = [v / total_geral * 100 for v in valores_abs]
+
+                        paleta = pcolors.qualitative.Alphabet
+                        cores = [paleta[i % len(paleta)] for i in range(len(labels))]
+                        if "Outros" in labels:
+                            cores[labels.index("Outros")] = "#E4572E"  # destaca "Outros"
+
+                        fig3 = go.Figure(
+                            go.Bar(
+                                x=labels,
+                                y=percentuais,
+                                marker_color=cores,
+                                text=[f"{p:.1f}%" for p in percentuais],
+                                textposition="outside",
+                                hovertemplate="%{x}<br>%{y:.2f}%<extra></extra>",
+                            )
                         )
-                    )
-                    fig3.update_layout(
-                        xaxis_title="País",
-                        yaxis_title="% do total importado",
-                        xaxis=dict(categoryorder="array", categoryarray=labels),
-                        plot_bgcolor="#DBF7FF",
-                        paper_bgcolor="white",
-                        height=500,
-                        showlegend=False,
-                        margin=dict(t=50, b=50, l=50, r=50),
-                    )
-                    fig3.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                    fig3.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                    st.plotly_chart(fig3, use_container_width=True, key=f"grafico3_pct_pais_{combo_id}")
+                        fig3.update_layout(
+                            xaxis_title="País",
+                            yaxis_title="% do total importado",
+                            xaxis=dict(categoryorder="array", categoryarray=labels),
+                            plot_bgcolor="#DBF7FF",
+                            paper_bgcolor="white",
+                            height=500,
+                            showlegend=False,
+                            margin=dict(t=50, b=50, l=50, r=50),
+                        )
+                        fig3.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                        fig3.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                        st.plotly_chart(fig3, use_container_width=True, key=f"grafico3_pct_pais_{combo_id}")
                 else:
                     st.info("Sem valores no período selecionado para calcular percentuais.")
             else:
