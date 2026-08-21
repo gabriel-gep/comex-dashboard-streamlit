@@ -625,3 +625,98 @@ if "df_eua_multi" in st.session_state:
                     "-- marque 'Via de entrada' nos filtros e desmarque 'Agregar "
                     "todas as vias' para ver os gráficos por via."
                 )
+
+            # ------------------------------------------------------------
+            # Gráfico 3 -- porcentagem por país (top 5 + "Outros"), em barras
+            # (equivalente ao gráfico de pizza/rosca do dash Brasil).
+            # ------------------------------------------------------------
+            st.divider()
+            st.markdown(
+                f"""
+                <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
+                    Porcentagem por País de {metrica_grafico} (Realizado) Importado
+                </h2>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            country_col = None
+            for c in label_cols:
+                valores = df_fonte_grafico[c].dropna().astype(str)
+                if len(valores) == 0:
+                    continue
+                if valores.isin(COUNTRY_CODES.keys()).mean() >= 0.5:
+                    country_col = c
+                    break
+
+            if country_col:
+                if len(periodo_cols) > 1:
+                    periodo3_inicio, periodo3_fim = st.select_slider(
+                        "Período considerado neste gráfico",
+                        options=periodo_cols,
+                        value=(periodo_cols[0], periodo_cols[-1]),
+                        key=f"periodo_slicer_grafico3_{combo_id}",
+                    )
+                    idx3_ini = periodo_cols.index(periodo3_inicio)
+                    idx3_fim = periodo_cols.index(periodo3_fim)
+                    periodo_visivel3 = periodo_cols[idx3_ini: idx3_fim + 1]
+                else:
+                    periodo_visivel3 = periodo_cols
+
+                df_pais = (
+                    df_fonte_grafico.groupby(country_col, as_index=False)[periodo_visivel3]
+                    .sum(min_count=1)
+                )
+                df_pais["_valor"] = df_pais[periodo_visivel3].sum(axis=1, skipna=True)
+                df_pais = df_pais.sort_values("_valor", ascending=False).reset_index(drop=True)
+
+                total_geral = df_pais["_valor"].sum()
+
+                if total_geral and total_geral > 0:
+                    top5_paises = df_pais.head(5).copy()
+                    resto_valor = df_pais["_valor"].iloc[5:].sum()
+
+                    labels = top5_paises[country_col].tolist()
+                    valores_abs = top5_paises["_valor"].tolist()
+                    if resto_valor > 0:
+                        labels.append("Outros")
+                        valores_abs.append(resto_valor)
+
+                    percentuais = [v / total_geral * 100 for v in valores_abs]
+
+                    paleta = pcolors.qualitative.Alphabet
+                    cores = [paleta[i % len(paleta)] for i in range(len(labels))]
+                    if "Outros" in labels:
+                        cores[labels.index("Outros")] = "#E4572E"  # vermelho, destacando "Outros"
+
+                    fig3 = go.Figure(
+                        go.Bar(
+                            x=labels,
+                            y=percentuais,
+                            marker_color=cores,
+                            text=[f"{p:.1f}%" for p in percentuais],
+                            textposition="outside",
+                            hovertemplate="%{x}<br>%{y:.2f}%<extra></extra>",
+                        )
+                    )
+                    fig3.update_layout(
+                        xaxis_title="País",
+                        yaxis_title="% do total importado",
+                        xaxis=dict(categoryorder="array", categoryarray=labels),
+                        plot_bgcolor="#DBF7FF",
+                        paper_bgcolor="white",
+                        height=500,
+                        showlegend=False,
+                        margin=dict(t=50, b=50, l=50, r=50),
+                    )
+                    fig3.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    fig3.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    st.plotly_chart(fig3, use_container_width=True, key=f"grafico3_pct_pais_{combo_id}")
+                else:
+                    st.info("Sem valores no período selecionado para calcular percentuais.")
+            else:
+                st.info(
+                    "Nenhuma quebra por país detectada nos dados atuais -- marque "
+                    "'Países de origem' nos filtros e desmarque 'Agregar todos os "
+                    "países' para ver este gráfico."
+                )
