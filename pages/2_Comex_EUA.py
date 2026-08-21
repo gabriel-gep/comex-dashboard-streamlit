@@ -417,10 +417,13 @@ if "df_eua_multi" in st.session_state:
             df_fonte_grafico = df_fonte
 
         def legenda_unidade_hts():
-            """Mostra, embaixo do título de cada gráfico, a unidade de
-            medida (quando Quantidade) e qual HTS está sendo exibido
-            (quando um HTS específico foi escolhido, não o Total)."""
+            """Mostra, embaixo do título de cada gráfico, qual HTS está
+            sendo exibido (quando um HTS específico foi escolhido, não o
+            Total) e, numa linha abaixo, a unidade de medida (quando
+            Quantidade)."""
             linhas = []
+            if hts_escolhido is not None:
+                linhas.append(f"HTS exibido: {hts_labels.get(hts_escolhido, hts_escolhido)}")
             if metrica_grafico == "Quantidade" and "Quantity Description" in df_fonte_grafico.columns:
                 unidades = (
                     df_fonte_grafico["Quantity Description"]
@@ -431,12 +434,10 @@ if "df_eua_multi" in st.session_state:
                 unidades_txt = ", ".join(sorted(u for u in unidades if u and u != "nan"))
                 if unidades_txt:
                     linhas.append(f"Unidade de medida: {unidades_txt}")
-            if hts_escolhido is not None:
-                linhas.append(f"HTS exibido: {hts_labels.get(hts_escolhido, hts_escolhido)}")
-            if linhas:
+            for linha in linhas:
                 st.markdown(
-                    f"<p style='text-align:center; font-size:0.85rem; color:#666;'>"
-                    f"{' · '.join(linhas)}</p>",
+                    f"<p style='text-align:center; font-size:0.85rem; color:#666; margin:0;'>"
+                    f"{linha}</p>",
                     unsafe_allow_html=True,
                 )
 
@@ -752,25 +753,33 @@ if "df_eua_multi" in st.session_state:
                         if "Outros" in labels:
                             cores[labels.index("Outros")] = "#E4572E"  # destaca "Outros"
 
+                        # Barras horizontais, maior no topo -- por isso a
+                        # ordem é invertida antes de plotar (Plotly desenha
+                        # a primeira categoria embaixo por padrão).
+                        labels_h = labels[::-1]
+                        percentuais_h = percentuais[::-1]
+                        cores_h = cores[::-1]
+
                         fig3 = go.Figure(
                             go.Bar(
-                                x=labels,
-                                y=percentuais,
-                                marker_color=cores,
-                                text=[f"{p:.1f}%" for p in percentuais],
+                                x=percentuais_h,
+                                y=labels_h,
+                                orientation="h",
+                                marker_color=cores_h,
+                                text=[f"{p:.1f}%" for p in percentuais_h],
                                 textposition="outside",
-                                hovertemplate="%{x}<br>%{y:.2f}%<extra></extra>",
+                                hovertemplate="%{y}<br>%{x:.2f}%<extra></extra>",
                             )
                         )
                         fig3.update_layout(
-                            xaxis_title="País",
-                            yaxis_title="% do total importado",
-                            xaxis=dict(categoryorder="array", categoryarray=labels),
+                            xaxis_title="% do total importado",
+                            yaxis_title="País",
+                            yaxis=dict(categoryorder="array", categoryarray=labels_h),
                             plot_bgcolor="#DBF7FF",
                             paper_bgcolor="white",
                             height=500,
                             showlegend=False,
-                            margin=dict(t=50, b=50, l=50, r=50),
+                            margin=dict(t=50, b=50, l=50, r=80),
                         )
                         fig3.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                         fig3.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
