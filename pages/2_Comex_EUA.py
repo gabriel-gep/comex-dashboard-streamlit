@@ -73,13 +73,22 @@ _raw_lines = [c.strip() for c in hts_input.splitlines() if c.strip()]
 hts_codes = [re.sub(r"[^0-9]", "", line) for line in _raw_lines]
 hts_codes = [c for c in hts_codes if c]
 
-aggregate_commodities = st.sidebar.checkbox(
-    "Agregar todos os HTS numa única linha", value=False
-)
-
 st.sidebar.markdown("**Métrica(s)**")
 metrica_valor = st.sidebar.checkbox("Valor (USD)", value=True)
 metrica_quantidade = st.sidebar.checkbox("Quantidade", value=False)
+
+aggregate_commodities = st.sidebar.checkbox(
+    "Agregar todos os HTS numa única linha",
+    value=False,
+    disabled=metrica_quantidade,
+    help=(
+        "Desativado quando 'Quantidade' está marcada: HTS diferentes podem "
+        "ter unidades de medida diferentes (kg, toneladas etc.), e somar "
+        "isso na origem geraria um número sem sentido."
+    ),
+)
+if metrica_quantidade:
+    aggregate_commodities = False
 
 periodo_tipo = st.sidebar.radio("Período", ["Anual", "Mensal"], horizontal=True)
 
