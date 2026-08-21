@@ -525,6 +525,89 @@ if "df_eua_multi" in st.session_state:
                                 fig.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 chart_key = "via_chart_" + re.sub(r"\W+", "_", str(via).lower())
                                 st.plotly_chart(fig, use_container_width=True, key=chart_key)
+
+                # ------------------------------------------------------
+                # Gráfico 2 -- todas as vias combinadas num único gráfico
+                # (padrão do dash Brasil: "Volume total transacionado por URF")
+                # ------------------------------------------------------
+                st.divider()
+                st.markdown(
+                    f"""
+                    <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
+                        Volume total transacionado em {metrica_grafico} (Realizado) por Via de Entrada
+                    </h2>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                if len(periodo_cols) > 1:
+                    periodo2_inicio, periodo2_fim = st.select_slider(
+                        "Período exibido neste gráfico",
+                        options=periodo_cols,
+                        value=(periodo_cols[0], periodo_cols[-1]),
+                        key=f"periodo_slicer_grafico2_{combo_id}",
+                    )
+                    idx2_ini = periodo_cols.index(periodo2_inicio)
+                    idx2_fim = periodo_cols.index(periodo2_fim)
+                    periodo_visivel2 = periodo_cols[idx2_ini: idx2_fim + 1]
+                else:
+                    periodo_visivel2 = periodo_cols
+
+                ms_key2 = f"vias_grafico2_multiselect_{combo_id}"
+                reset_flag_key2 = f"vias_grafico2_reset_flag_{combo_id}"
+                if st.session_state.get(reset_flag_key2):
+                    st.session_state[ms_key2] = top5_default
+                    st.session_state[reset_flag_key2] = False
+
+                col_label2, col_btn2 = st.columns([5, 1])
+                with col_label2:
+                    st.markdown("**Vias exibidas**")
+                with col_btn2:
+                    if st.button("🔝 Restaurar Top 5", key=f"vias_grafico2_reset_btn_{combo_id}", use_container_width=True):
+                        st.session_state[reset_flag_key2] = True
+                        st.rerun()
+
+                vias_selecionadas2 = st.multiselect(
+                    "Vias exibidas neste gráfico",
+                    options=todas_vias_alfa,
+                    default=top5_default,
+                    key=ms_key2,
+                    label_visibility="collapsed",
+                )
+
+                if not vias_selecionadas2:
+                    st.info("Selecione ao menos uma via para exibir o gráfico.")
+                else:
+                    fig2 = go.Figure()
+                    for via in vias_selecionadas2:
+                        row = df_via[df_via[via_col] == via].iloc[0]
+                        valores = [row[c] for c in periodo_visivel2]
+                        fig2.add_trace(
+                            go.Bar(
+                                x=periodo_visivel2,
+                                y=valores,
+                                name=str(via),
+                                hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                            )
+                        )
+                    fig2.update_layout(
+                        barmode="group",
+                        xaxis_title="Período",
+                        yaxis_title=metrica_grafico,
+                        plot_bgcolor="#DBF7FF",
+                        paper_bgcolor="white",
+                        height=600,
+                        legend_title="Via",
+                        legend=dict(
+                            orientation="h", yanchor="top", y=-0.2,
+                            xanchor="center", x=0.5,
+                            bgcolor="white", bordercolor="#042373", borderwidth=1,
+                        ),
+                        margin=dict(t=60, b=140, l=50, r=50),
+                    )
+                    fig2.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    fig2.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    st.plotly_chart(fig2, use_container_width=True, key=f"grafico2_combinado_{combo_id}")
             else:
                 st.info(
                     "Nenhuma quebra por via de entrada detectada nos dados atuais "
