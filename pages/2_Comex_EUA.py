@@ -118,6 +118,18 @@ TOKEN = st.secrets.get("DATAWEB_TOKEN")
 # Execução da consulta
 # --------------------------------------------------------------------
 if buscar:
+    # Limpa o estado dos filtros de gráfico (seleção de vias, métrica,
+    # HTS escolhido) toda vez que uma nova busca é feita -- senão o
+    # Streamlit mantém a seleção antiga e ignora o novo "top 5" calculado
+    # para os dados recém-consultados.
+    for chave in [
+        "vias_grafico_multiselect",
+        "vias_grafico_reset_flag",
+        "metrica_grafico_toggle",
+    ]:
+        if chave in st.session_state:
+            del st.session_state[chave]
+
     if not TOKEN:
         st.error(
             "Token da API DataWeb não configurado. Adicione `DATAWEB_TOKEN` "
