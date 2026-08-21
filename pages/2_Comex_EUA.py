@@ -349,7 +349,7 @@ if "df_eua_multi" in st.session_state:
 
         return df_exibicao, periodo_cols
 
-    def renderizar_medida(df, medida_label, tab_key, df_exibicao, periodo_cols):
+    def renderizar_medida(df, medida_label, tab_key, df_exibicao, periodo_cols, excel_buffer=None):
         st.success(f"{len(df_exibicao)} linha(s) retornada(s).")
         st.dataframe(
             df_exibicao,
@@ -367,6 +367,17 @@ if "df_eua_multi" in st.session_state:
             f"⬇️ Baixar CSV — {label_pt(medida_label)}", csv, f"comex_eua_{tab_key}.csv", "text/csv",
             key=f"{tab_key}_download",
         )
+
+        # Excel combinado (Valor + Quantidade, abas separadas) -- logo
+        # abaixo do CSV, disponível em qualquer uma das abas.
+        if excel_buffer is not None:
+            st.download_button(
+                "⬇️ Baixar Excel (Valor + Quantidade, abas separadas)",
+                excel_buffer,
+                "comex_eua_valor_quantidade.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"{tab_key}_excel_download",
+            )
 
         if not periodo_cols:
             return
@@ -423,21 +434,16 @@ if "df_eua_multi" in st.session_state:
 
     if len(dfs_por_medida) > 1:
         # Excel com uma aba por medida -- é o formato que suporta múltiplas
-        # abas de fato (CSV não suporta).
+        # abas de fato (CSV não suporta). Gerado uma vez, reutilizado nos
+        # botões de download de cada aba (logo abaixo do CSV).
         import io
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             for label, df in dfs_por_medida.items():
-                df_exibicao, _ = preparar_df_exibicao(df, label)
+                df_exibicao_tmp, _ = preparar_df_exibicao(df, label)
                 sheet_name = label_pt(label)[:31]  # limite do Excel
-                df_exibicao.to_excel(writer, sheet_name=sheet_name, index=False)
-        st.download_button(
-            "⬇️ Baixar Excel (Valor + Quantidade, abas separadas)",
-            buffer.getvalue(),
-            "comex_eua_valor_quantidade.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="excel_combinado_download",
-        )
+                df_exibicao_tmp.to_excel(writer, sheet_name=sheet_name, index=False)
+        excel_bytes = buffer.getvalue()
 
         tabs = st.tabs([label_pt(label) for label in dfs_por_medida.keys()])
         for tab, (label, df) in zip(tabs, dfs_por_medida.items()):
@@ -446,6 +452,7 @@ if "df_eua_multi" in st.session_state:
                 renderizar_medida(
                     df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
                     df_exibicao=df_exibicao, periodo_cols=periodo_cols,
+                    excel_buffer=excel_bytes,
                 )
     else:
         label, df = next(iter(dfs_por_medida.items()))
