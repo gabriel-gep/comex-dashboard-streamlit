@@ -372,11 +372,49 @@ if "df_eua_multi" in st.session_state:
             else:
                 periodo_visivel = periodo_cols
 
-            # Detecta a coluna de via/distrito para quebrar os gráficos
             label_cols = [c for c in df_fonte.columns if c not in periodo_cols]
+
+            # Detecta a coluna de HTS (comparando com os códigos que o
+            # usuário informou nos filtros).
+            hts_col = None
+            for c in label_cols:
+                valores = set(str(v) for v in df_fonte[c].dropna().unique())
+                if valores and valores.issubset(set(hts_codes)):
+                    hts_col = c
+                    break
+
+            hts_presentes = sorted(df_fonte[hts_col].dropna().unique()) if hts_col else []
+
+            # Misturar HTS diferentes na Quantidade não faz sentido -- as
+            # unidades de medida podem ser diferentes entre eles. Se houver
+            # mais de um HTS e a métrica for Quantidade, exige escolher um.
+            if hts_col and len(hts_presentes) > 1 and metrica_grafico == "Quantidade":
+                desc_col = next(
+                    (c for c in label_cols if c not in (hts_col, "Quantity Description")),
+                    None,
+                )
+                opcoes_hts = {}
+                for h in hts_presentes:
+                    if desc_col:
+                        desc_vals = df_fonte.loc[df_fonte[hts_col] == h, desc_col].dropna().unique()
+                        desc = desc_vals[0] if len(desc_vals) else ""
+                        opcoes_hts[f"{h} — {desc}"[:80]] = h
+                    else:
+                        opcoes_hts[h] = h
+
+                escolha_label = st.selectbox(
+                    "HTS exibido nos gráficos (Quantidade não pode somar HTS com unidades diferentes)",
+                    options=list(opcoes_hts.keys()),
+                )
+                hts_escolhido = opcoes_hts[escolha_label]
+                df_fonte_grafico = df_fonte[df_fonte[hts_col] == hts_escolhido]
+            else:
+                df_fonte_grafico = df_fonte
+
+            # Detecta a coluna de via/distrito para quebrar os gráficos
             via_col = None
             for c in label_cols:
-                valores = df_fonte[c].dropna().astype(str)
+                valores = df_fonte_grafico[c].dropna().astype(str)
                 if len(valores) == 0:
                     continue
                 if valores.isin(DISTRICT_CODES.keys()).mean() >= 0.5:
@@ -385,13 +423,14 @@ if "df_eua_multi" in st.session_state:
 
             if via_col:
                 df_via = (
-                    df_fonte.groupby(via_col, as_index=False)[periodo_cols]
+                    df_fonte_grafico.groupby(via_col, as_index=False)[periodo_cols]
                     .sum(min_count=1)
                 )
                 df_via["_total"] = df_via[periodo_cols].sum(axis=1, skipna=True)
                 df_via = df_via.sort_values("_total", ascending=False)
                 todas_vias = df_via[via_col].tolist()
-                top5_default = todas_vias[:5]
+                top5_default = sorted(todas_vias[:5])
+                todas_vias_alfa = sorted(todas_vias)
 
                 ms_key = "vias_grafico_multiselect"
                 reset_flag_key = "vias_grafico_reset_flag"
@@ -409,7 +448,7 @@ if "df_eua_multi" in st.session_state:
 
                 vias_selecionadas = st.multiselect(
                     "Vias exibidas",
-                    options=todas_vias,
+                    options=todas_vias_alfa,
                     default=top5_default,
                     key=ms_key,
                     label_visibility="collapsed",
