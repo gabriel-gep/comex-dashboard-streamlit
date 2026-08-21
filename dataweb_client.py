@@ -285,6 +285,76 @@ def country_names_to_codes(names: list[str]) -> list[str]:
 
 
 # --------------------------------------------------------------------------
+# 0b. Códigos de distrito aduaneiro / via de entrada (Schedule D - Census Bureau)
+# --------------------------------------------------------------------------
+# Fonte oficial: https://www.census.gov/foreign-trade/schedules/d/dist2.txt
+# Confirmado empiricamente via API: Los Angeles -> "27", Miami -> "52",
+# New York City -> "10". Nível de "District" (não o "Port" de 4 dígitos,
+# mais granular -- o seletor de districts do DataWeb trabalha no nível
+# de distrito).
+# ATENÇÃO: códigos abaixo de 10 têm zero à esquerda conforme o Schedule D
+# oficial (ex: "01" para Portland, ME). Não confirmado empiricamente para
+# esses casos -- se a API rejeitar, tente sem o zero à esquerda.
+DISTRICT_CODES: dict[str, str] = {
+    "Portland, ME": "01",
+    "St. Albans, VT": "02",
+    "Boston, MA": "04",
+    "Providence, RI": "05",
+    "Ogdensburg, NY": "07",
+    "Buffalo, NY": "09",
+    "New York, NY": "10",
+    "Philadelphia, PA": "11",
+    "Baltimore, MD": "13",
+    "Norfolk, VA": "14",
+    "Wilmington, NC": "15",
+    "Charleston, SC": "16",
+    "Savannah, GA": "17",
+    "Tampa, FL": "18",
+    "Mobile, AL": "19",
+    "New Orleans, LA": "20",
+    "Port Arthur, TX": "21",
+    "Laredo, TX": "23",
+    "El Paso, TX": "24",
+    "San Diego, CA": "25",
+    "Nogales, AZ": "26",
+    "Los Angeles, CA": "27",
+    "San Francisco, CA": "28",
+    "Columbia-Snake, OR": "29",
+    "Seattle, WA": "30",
+    "Anchorage, AK": "31",
+    "Honolulu, HI": "32",
+    "Great Falls, MT": "33",
+    "Pembina, ND": "34",
+    "Minneapolis, MN": "35",
+    "Duluth, MN": "36",
+    "Milwaukee, WI": "37",
+    "Detroit, MI": "38",
+    "Chicago, IL": "39",
+    "St Louis, MO": "45",
+    "Cleveland, OH": "41",
+    "San Juan, PR": "49",
+    "Virgin Islands of the United States": "51",
+    "Miami, FL": "52",
+    "Houston-Galveston, TX": "53",
+    "Washington, DC": "54",
+    "Dallas/Ft. Worth, TX": "55",
+    "Vessels Under Their Own Power (Imports and Exports)": "60",
+    "Norfolk/Mobile/Charleston": "59",
+    "Low-Valued Imports and Exports": "70",
+    "Mail Shipments (Export Only)": "80",
+}
+
+
+def district_names_to_codes(names: list[str]) -> list[str]:
+    """
+    Converte uma lista de nomes de distrito (conforme DISTRICT_CODES) para
+    os códigos internos usados pela API. Nomes não encontrados são
+    ignorados silenciosamente.
+    """
+    return [DISTRICT_CODES[name] for name in names if name in DISTRICT_CODES]
+
+
+# --------------------------------------------------------------------------
 # 1. Construção dinâmica da query
 # --------------------------------------------------------------------------
 
@@ -295,6 +365,10 @@ def build_import_query(
     aggregate_commodities: bool = False,
     aggregate_countries: bool = True,
     granularity: str = "10",
+    measures: Optional[list[str]] = None,
+    monthly: bool = False,
+    districts: Optional[list[str]] = None,
+    aggregate_districts: bool = True,
 ) -> dict:
     """
     Monta o payload JSON esperado pelo endpoint runReport para consultas
@@ -313,6 +387,20 @@ def build_import_query(
     aggregate_countries : se True, soma todos os países numa única coluna.
         Se False, quebra por país (exige lista de países preenchida).
     granularity : nível de detalhe HTS (ex: "10" para HTS-10).
+    measures : quais medidas retornar. Valores aceitos:
+        "CONS_CUSTOMS_VALUE" (valor, em dólares) e/ou
+        "CONS_FIR_UNIT_QUANT" (quantidade, na primeira unidade de medida
+        do HTS -- kg, dúzia, m2 etc., varia por produto).
+        Default: ["CONS_CUSTOMS_VALUE"].
+    monthly : se True, os dados vêm quebrados por mês em vez de por ano
+        (retorna uma coluna por mês/ano, ex: "Jan-2023", em vez de uma
+        coluna por ano).
+    districts : lista de NOMES de distrito conforme as chaves de
+        DISTRICT_CODES (ex.: ["Los Angeles, CA", "Miami, FL"]) -- equivale
+        à via/porto de entrada. Se None ou vazia, consulta "todos os
+        distritos" (sem quebra).
+    aggregate_districts : se True, soma todos os distritos numa única
+        coluna. Se False, quebra por distrito (exige lista preenchida).
 
     Returns
     -------
@@ -320,6 +408,11 @@ def build_import_query(
     """
     countries = countries or []
     country_codes = country_names_to_codes(countries)
+
+    districts = districts or []
+    district_codes = district_names_to_codes(districts)
+
+    measures = measures or ["CONS_CUSTOMS_VALUE"]
 
     query = {
         "savedQueryDatabaseId": None,
@@ -347,7 +440,7 @@ def build_import_query(
         },
         "searchOptions": {
             "componentSettings": {
-                "dataToReport": ["CONS_CUSTOMS_VALUE"],
+                "dataToReport": measures,
                 "scale": "1",
                 "timeframeSelectType": "fullYears",
                 "years": years,
@@ -355,7 +448,7 @@ def build_import_query(
                 "endDate": None,
                 "startMonth": None,
                 "endMonth": None,
-                "yearsTimeline": "Annual",
+                "yearsTimeline": "Monthly" if monthly else "Annual",
             },
             "commodities": {
                 "commodities": hts_codes,
@@ -404,11 +497,17 @@ def build_import_query(
                     "rateProvisionGroups": {"systemGroups": []},
                 },
                 "districts": {
-                    "districts": [],
-                    "districtsExpanded": [],
+                    "districts": district_codes,
+                    "districtsExpanded": [
+                        {"name": name, "value": DISTRICT_CODES[name]}
+                        for name in districts
+                        if name in DISTRICT_CODES
+                    ],
                     "districtGroups": {"userGroups": []},
-                    "aggregation": "Aggregate District",
-                    "districtsSelectType": "all",
+                    "aggregation": "Aggregate District"
+                    if aggregate_districts
+                    else "Break Out District",
+                    "districtsSelectType": "all" if not district_codes else "list",
                 },
             },
         },
@@ -482,6 +581,96 @@ def parse_report(response_json: dict, measure_num: int = 0) -> pd.DataFrame:
     columns = _get_columns(table["column_groups"])
     data = _get_data(table["row_groups"][0]["rowsNew"])
     return pd.DataFrame(data, columns=columns)
+
+
+def get_table_label(response_json: dict, measure_num: int = 0) -> str:
+    """
+    Retorna um rótulo legível para a medida de uma tabela (ex: "Customs
+    Value" ou "First Unit of Quantity"), usado quando a resposta tem mais
+    de uma tabela (uma por medida solicitada).
+    """
+    table = response_json["dto"]["tables"][measure_num]
+    return table.get("tableInfo", {}).get("dataToReportDesc") or table.get("tab_name") or f"Medida {measure_num + 1}"
+
+
+def num_tables(response_json: dict) -> int:
+    """Quantas tabelas (medidas) vieram na resposta."""
+    return len(response_json["dto"]["tables"])
+
+
+# --------------------------------------------------------------------------
+# 3b. Achatar formato mensal em linha do tempo contínua
+# --------------------------------------------------------------------------
+# Quando yearsTimeline="Monthly", a API retorna uma linha por combinação de
+# (grupo identificador, Ano), com colunas January..December. Para exibir
+# como uma linha do tempo contínua (Jan/2023 -> Dez/2023 -> Jan/2024 -> ...),
+# é preciso "achatar" isso: uma linha por grupo, com uma coluna por mês/ano.
+
+MONTH_ORDER = {
+    "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
+    "July": 7, "August": 8, "September": 9, "October": 10, "November": 11,
+    "December": 12,
+}
+
+MONTH_ABBR_PT = {
+    "January": "Jan", "February": "Fev", "March": "Mar", "April": "Abr",
+    "May": "Mai", "June": "Jun", "July": "Jul", "August": "Ago",
+    "September": "Set", "October": "Out", "November": "Nov", "December": "Dez",
+}
+
+
+def reshape_monthly_timeline(df: pd.DataFrame, year_col: str = "Year") -> pd.DataFrame:
+    """
+    Reformata um DataFrame mensal (uma linha por grupo+ano, colunas
+    January..December, valores já numéricos) em uma linha do tempo
+    contínua: uma linha por grupo (sem o ano como coluna separada), com
+    uma coluna por combinação mês/ano, em ordem cronológica
+    (ex: "Jan/2023", "Fev/2023", ..., "Dez/2024").
+
+    Se o DataFrame não tiver o formato mensal esperado (sem coluna de
+    mês ou sem year_col), retorna o DataFrame original sem alteração.
+    """
+    month_cols = [m for m in MONTH_ORDER if m in df.columns]
+    if not month_cols or year_col not in df.columns:
+        return df
+
+    id_cols = [c for c in df.columns if c not in month_cols and c != year_col]
+
+    melted = df.melt(
+        id_vars=id_cols + [year_col],
+        value_vars=month_cols,
+        var_name="_month",
+        value_name="_value",
+    )
+    melted["_month_num"] = melted["_month"].map(MONTH_ORDER)
+    melted["_period_sort"] = (
+        melted[year_col].astype(str) + melted["_month_num"].astype(str).str.zfill(2)
+    )
+    melted["_period_label"] = (
+        melted["_month"].map(MONTH_ABBR_PT) + "/" + melted[year_col].astype(str)
+    )
+
+    period_order = (
+        melted[["_period_sort", "_period_label"]]
+        .drop_duplicates()
+        .sort_values("_period_sort")["_period_label"]
+        .tolist()
+    )
+
+    if id_cols:
+        pivot = melted.pivot_table(
+            index=id_cols, columns="_period_label", values="_value", aggfunc="first"
+        ).reset_index()
+    else:
+        # Sem colunas de identificação (ex: consulta totalmente agregada) --
+        # usa um índice fixo para não quebrar o pivot_table.
+        melted["_grupo_unico"] = "Total"
+        pivot = melted.pivot_table(
+            index="_grupo_unico", columns="_period_label", values="_value", aggfunc="first"
+        ).reset_index(drop=True)
+
+    pivot = pivot[id_cols + period_order] if id_cols else pivot[period_order]
+    return pivot
 
 
 # --------------------------------------------------------------------------
