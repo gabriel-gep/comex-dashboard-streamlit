@@ -792,3 +792,130 @@ if "df_eua_multi" in st.session_state:
                     "'Países de origem' nos filtros e desmarque 'Agregar todos os "
                     "países' para ver este gráfico."
                 )
+
+            # ------------------------------------------------------------
+            # Gráfico 4 -- porcentagem por país, um mini-gráfico por via
+            # (top 5 países + "Outros" fixo por via -- sem seletor de país
+            # aqui; o que é ajustável é QUAIS VIAS aparecem).
+            # ------------------------------------------------------------
+            st.divider()
+            st.markdown(
+                f"""
+                <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
+                    Porcentagem por País de {metrica_grafico} (Realizado) Importado Separado por Via
+                </h2>
+                """,
+                unsafe_allow_html=True,
+            )
+            legenda_unidade_hts()
+
+            if via_col and country_col:
+                if len(periodo_cols) > 1:
+                    periodo4_inicio, periodo4_fim = st.select_slider(
+                        "Período considerado neste gráfico",
+                        options=periodo_cols,
+                        value=(periodo_cols[0], periodo_cols[-1]),
+                        key=f"periodo_slicer_grafico4_{combo_id}",
+                    )
+                    idx4_ini = periodo_cols.index(periodo4_inicio)
+                    idx4_fim = periodo_cols.index(periodo4_fim)
+                    periodo_visivel4 = periodo_cols[idx4_ini: idx4_fim + 1]
+                else:
+                    periodo_visivel4 = periodo_cols
+
+                ms_key4 = f"vias_grafico4_multiselect_{combo_id}"
+                reset_flag_key4 = f"vias_grafico4_reset_flag_{combo_id}"
+                if st.session_state.get(reset_flag_key4):
+                    st.session_state[ms_key4] = top5_default
+                    st.session_state[reset_flag_key4] = False
+
+                col_label4, col_btn4 = st.columns([5, 1])
+                with col_label4:
+                    st.markdown("**Vias exibidas (cada uma vira um mini-gráfico)**")
+                with col_btn4:
+                    if st.button("🔝 Restaurar Top 5", key=f"vias_grafico4_reset_btn_{combo_id}", use_container_width=True):
+                        st.session_state[reset_flag_key4] = True
+                        st.rerun()
+
+                vias_selecionadas4 = st.multiselect(
+                    "Vias exibidas neste gráfico",
+                    options=todas_vias_alfa,
+                    default=top5_default,
+                    key=ms_key4,
+                    label_visibility="collapsed",
+                    max_selections=8,
+                )
+                st.caption("Máximo de 8 vias por vez (cada uma gera um mini-gráfico).")
+
+                if not vias_selecionadas4:
+                    st.info("Selecione ao menos uma via para exibir os gráficos.")
+                else:
+                    paleta4 = pcolors.qualitative.Alphabet
+                    cols_por_linha4 = 2
+                    for i in range(0, len(vias_selecionadas4), cols_por_linha4):
+                        cols4 = st.columns(cols_por_linha4)
+                        for j, via in enumerate(vias_selecionadas4[i:i + cols_por_linha4]):
+                            with cols4[j]:
+                                st.markdown(f"**Via: {via}**")
+
+                                df_via_pais = df_fonte_grafico[df_fonte_grafico[via_col] == via]
+                                df_via_pais = (
+                                    df_via_pais.groupby(country_col, as_index=False)[periodo_visivel4]
+                                    .sum(min_count=1)
+                                )
+                                df_via_pais["_valor"] = df_via_pais[periodo_visivel4].sum(axis=1, skipna=True)
+                                df_via_pais = df_via_pais.sort_values("_valor", ascending=False)
+                                total_via = df_via_pais["_valor"].sum()
+
+                                if not total_via or total_via <= 0:
+                                    st.info("Sem dados nessa via no período selecionado.")
+                                    continue
+
+                                top5_via = df_via_pais.head(5)
+                                resto_via = df_via_pais["_valor"].iloc[5:].sum()
+
+                                labels4 = top5_via[country_col].tolist()
+                                valores4 = top5_via["_valor"].tolist()
+                                if resto_via > 0:
+                                    labels4.append("Outros")
+                                    valores4.append(resto_via)
+
+                                percentuais4 = [v / total_via * 100 for v in valores4]
+                                cores4 = [paleta4[k % len(paleta4)] for k in range(len(labels4))]
+                                if "Outros" in labels4:
+                                    cores4[labels4.index("Outros")] = "#E4572E"
+
+                                labels4_h = labels4[::-1]
+                                percentuais4_h = percentuais4[::-1]
+                                cores4_h = cores4[::-1]
+
+                                fig4 = go.Figure(
+                                    go.Bar(
+                                        x=percentuais4_h,
+                                        y=labels4_h,
+                                        orientation="h",
+                                        marker_color=cores4_h,
+                                        text=[f"{p:.1f}%" for p in percentuais4_h],
+                                        textposition="outside",
+                                        hovertemplate="%{y}<br>%{x:.2f}%<extra></extra>",
+                                    )
+                                )
+                                fig4.update_layout(
+                                    xaxis_title="% do total nessa via",
+                                    yaxis=dict(categoryorder="array", categoryarray=labels4_h),
+                                    plot_bgcolor="#DBF7FF",
+                                    paper_bgcolor="white",
+                                    height=350,
+                                    showlegend=False,
+                                    margin=dict(t=30, b=40, l=100, r=50),
+                                )
+                                fig4.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                fig4.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                chart4_key = "grafico4_" + re.sub(r"\W+", "_", str(via).lower()) + f"_{combo_id}"
+                                st.plotly_chart(fig4, use_container_width=True, key=chart4_key)
+            else:
+                st.info(
+                    "Este gráfico exige quebra por país E por via de entrada ao "
+                    "mesmo tempo -- desmarque 'Agregar todos os países' e "
+                    "'Agregar todas as vias' nos filtros."
+                )
