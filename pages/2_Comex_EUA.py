@@ -74,24 +74,11 @@ _raw_lines = [c.strip() for c in hts_input.splitlines() if c.strip()]
 hts_codes = [re.sub(r"[^0-9]", "", line) for line in _raw_lines]
 hts_codes = [c for c in hts_codes if c]
 
-aggregate_commodities = st.sidebar.checkbox(
-    "Agregar todos os HTS numa única linha",
-    value=False,
-    key="aggregate_commodities_checkbox",
-    disabled=st.session_state.get("metrica_quantidade_checkbox", False),
-    help=(
-        "Desativado quando 'Quantidade' está marcada: HTS diferentes podem "
-        "ter unidades de medida diferentes (kg, toneladas etc.), e somar "
-        "isso na origem geraria um número sem sentido."
-    ),
-)
+aggregate_commodities = False  # sempre desagregado -- ver "Totais por HTS" na tabela
 
 st.sidebar.markdown("**Métrica(s)**")
 metrica_valor = st.sidebar.checkbox("Valor (USD)", value=True, key="metrica_valor_checkbox")
 metrica_quantidade = st.sidebar.checkbox("Quantidade", value=False, key="metrica_quantidade_checkbox")
-
-if metrica_quantidade:
-    aggregate_commodities = False
 
 periodo_tipo = st.sidebar.radio("Período", ["Anual", "Mensal"], horizontal=True)
 
@@ -109,14 +96,14 @@ countries = st.sidebar.multiselect(
     options=sorted(COUNTRY_CODES.keys()),
     default=[],
 )
-aggregate_countries = st.sidebar.checkbox("Agregar todos os países", value=True)
+aggregate_countries = False  # sempre desagregado
 
 districts = st.sidebar.multiselect(
     "Via de entrada / distrito aduaneiro (opcional — vazio = todos)",
     options=sorted(DISTRICT_CODES.keys()),
     default=[],
 )
-aggregate_districts = st.sidebar.checkbox("Agregar todas as vias", value=True)
+aggregate_districts = False  # sempre desagregado
 
 buscar = st.sidebar.button(
     "Buscar dados",
@@ -234,7 +221,7 @@ if "df_eua_multi" in st.session_state:
     def preparar_df_exibicao(df, medida_label):
         """Aplica a mesma limpeza usada na exibição (remover/renomear
         Quantity Description, adicionar coluna Total) -- reutilizada tanto
-        pela tabela em tela quanto pelos exports (CSV/Excel)."""
+        pela tabela em tela quanto pelos exports (Excel)."""
         periodo_cols = periodo_cols_de(df)
         eh_medida_valor = "Quantity" not in medida_label
 
@@ -258,7 +245,57 @@ if "df_eua_multi" in st.session_state:
 
         return df_exibicao, periodo_cols
 
-    def renderizar_medida(df, medida_label, tab_key, df_exibicao, periodo_cols, excel_buffer=None):
+    def preparar_df_totais(df, medida_label):
+        """Tabela resumo por HTS (soma de país+via), para não perder a
+        visão agregada agora que a consulta sempre vem desagregada.
+        Em Valor, inclui uma linha final "TOTAL GERAL". Em Quantidade,
+        não -- HTS diferentes podem ter unidades de medida diferentes."""
+        periodo_cols = periodo_cols_de(df)
+        eh_medida_valor = "Quantity" not in medida_label
+        label_cols = [c for c in df.columns if c not in periodo_cols]
+
+        hts_col = None
+        for c in label_cols:
+            valores = set(str(v) for v in df[c].dropna().unique())
+            if valores and valores.issubset(set(hts_codes)):
+                hts_col = c
+                break
+
+        if not periodo_cols:
+            return pd.DataFrame()
+
+        if hts_col:
+            df_tot = (
+                df.groupby(hts_col, as_index=False)[periodo_cols]
+                .sum(min_count=1)
+            )
+        else:
+            soma = {c: df[c].sum(skipna=True) for c in periodo_cols}
+            df_tot = pd.DataFrame([soma])
+
+        df_tot["Total"] = df_tot[periodo_cols].sum(axis=1, skipna=True)
+
+        if eh_medida_valor and hts_col:
+            linha_total = {hts_col: "TOTAL GERAL"}
+            for c in periodo_cols + ["Total"]:
+                linha_total[c] = df_tot[c].sum(skipna=True)
+            df_tot = pd.concat([df_tot, pd.DataFrame([linha_total])], ignore_index=True)
+
+        return df_tot
+
+    def renderizar_medida(df, medida_label, tab_key, df_exibicao, periodo_cols, df_totais=None, excel_buffer=None):
+        if df_totais is not None and not df_totais.empty:
+            st.markdown("**Totais por HTS**")
+            st.dataframe(
+                df_totais,
+                use_container_width=True,
+                column_config={
+                    col: st.column_config.NumberColumn(format="localized")
+                    for col in periodo_cols + (["Total"] if periodo_cols else [])
+                },
+            )
+            st.markdown("**Detalhe (por País e Via)**")
+
         st.success(f"{len(df_exibicao)} linha(s) retornada(s).")
         st.dataframe(
             df_exibicao,
@@ -269,21 +306,13 @@ if "df_eua_multi" in st.session_state:
             },
         )
 
-        # Download individual (CSV) sempre disponível, mesmo com as duas
-        # métricas selecionadas -- útil se o usuário só quiser uma aba.
-        csv = df_exibicao.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            f"⬇️ Baixar CSV — {label_pt(medida_label)}", csv, f"comex_eua_{tab_key}.csv", "text/csv",
-            key=f"{tab_key}_download",
-        )
-
-        # Excel combinado (Valor + Quantidade, abas separadas) -- logo
-        # abaixo do CSV, disponível em qualquer uma das abas.
+        # Excel (Totais + Detalhe, abas separadas) -- substitui o CSV, já
+        # que agora sempre há pelo menos duas tabelas por medida.
         if excel_buffer is not None:
             st.download_button(
-                "⬇️ Baixar Excel (Valor + Quantidade, abas separadas)",
+                "⬇️ Baixar Excel (Totais + Detalhe)",
                 excel_buffer,
-                "comex_eua_valor_quantidade.xlsx",
+                "comex_eua_dados.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key=f"{tab_key}_excel_download",
             )
@@ -291,34 +320,40 @@ if "df_eua_multi" in st.session_state:
         if not periodo_cols:
             return
 
-    if len(dfs_por_medida) > 1:
-        # Excel com uma aba por medida -- é o formato que suporta múltiplas
-        # abas de fato (CSV não suporta). Gerado uma vez, reutilizado nos
-        # botões de download de cada aba (logo abaixo do CSV).
-        import io
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            for label, df in dfs_por_medida.items():
-                df_exibicao_tmp, _ = preparar_df_exibicao(df, label)
-                sheet_name = label_pt(label)[:31]  # limite do Excel
-                df_exibicao_tmp.to_excel(writer, sheet_name=sheet_name, index=False)
-        excel_bytes = buffer.getvalue()
+    # Monta o Excel único (Totais + Detalhe por medida). Sempre em Excel,
+    # nunca mais CSV -- com 1 medida selecionada, tem 2 abas; com as 2
+    # medidas, tem 4 abas.
+    import io
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        for label, df in dfs_por_medida.items():
+            df_exibicao_tmp, _ = preparar_df_exibicao(df, label)
+            df_totais_tmp = preparar_df_totais(df, label)
+            nome_base = label_pt(label)
+            if not df_totais_tmp.empty:
+                df_totais_tmp.to_excel(writer, sheet_name=f"{nome_base} - Totais"[:31], index=False)
+            df_exibicao_tmp.to_excel(writer, sheet_name=f"{nome_base} - Detalhe"[:31], index=False)
+    excel_bytes = buffer.getvalue()
 
+    if len(dfs_por_medida) > 1:
         tabs = st.tabs([label_pt(label) for label in dfs_por_medida.keys()])
         for tab, (label, df) in zip(tabs, dfs_por_medida.items()):
             with tab:
                 df_exibicao, periodo_cols = preparar_df_exibicao(df, label)
+                df_totais = preparar_df_totais(df, label)
                 renderizar_medida(
                     df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
                     df_exibicao=df_exibicao, periodo_cols=periodo_cols,
-                    excel_buffer=excel_bytes,
+                    df_totais=df_totais, excel_buffer=excel_bytes,
                 )
     else:
         label, df = next(iter(dfs_por_medida.items()))
         df_exibicao, periodo_cols = preparar_df_exibicao(df, label)
+        df_totais = preparar_df_totais(df, label)
         renderizar_medida(
             df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
             df_exibicao=df_exibicao, periodo_cols=periodo_cols,
+            df_totais=df_totais, excel_buffer=excel_bytes,
         )
 
     # ----------------------------------------------------------------
@@ -416,6 +451,11 @@ if "df_eua_multi" in st.session_state:
             hts_escolhido = None
             df_fonte_grafico = df_fonte
 
+        # combo_id identifica a combinação atual (métrica + HTS escolhido)
+        # -- definido aqui, ANTES de qualquer "if via_col:"/"if country_col:",
+        # para nunca dar erro quando um dos dois não existir nos dados.
+        combo_id = re.sub(r"\W+", "_", f"{metrica_grafico}_{hts_escolhido or 'total'}".lower())
+
         def legenda_unidade_hts():
             """Mostra, embaixo do título de cada gráfico, qual HTS está
             sendo exibido (quando um HTS específico foi escolhido, não o
@@ -489,7 +529,6 @@ if "df_eua_multi" in st.session_state:
                 top5_default = sorted(todas_vias[:5])
                 todas_vias_alfa = sorted(todas_vias)
 
-                combo_id = re.sub(r"\W+", "_", f"{metrica_grafico}_{hts_escolhido or 'total'}".lower())
                 ms_key = f"vias_grafico_multiselect_{combo_id}"
                 reset_flag_key = f"vias_grafico_reset_flag_{combo_id}"
                 if st.session_state.get(reset_flag_key):
