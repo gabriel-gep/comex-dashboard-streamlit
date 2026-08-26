@@ -248,8 +248,10 @@ if "df_eua_multi" in st.session_state:
     def preparar_df_totais(df, medida_label):
         """Tabela resumo por HTS (soma de país+via), para não perder a
         visão agregada agora que a consulta sempre vem desagregada.
-        Em Valor, inclui uma linha final "TOTAL GERAL". Em Quantidade,
-        não -- HTS diferentes podem ter unidades de medida diferentes."""
+        Mantém a descrição do produto e, em Quantidade, a unidade de
+        medida (ambas constantes por HTS). Em Valor, inclui uma linha
+        final "TOTAL GERAL". Em Quantidade, não -- HTS diferentes podem
+        ter unidades de medida diferentes."""
         periodo_cols = periodo_cols_de(df)
         eh_medida_valor = "Quantity" not in medida_label
         label_cols = [c for c in df.columns if c not in periodo_cols]
@@ -264,14 +266,46 @@ if "df_eua_multi" in st.session_state:
         if not periodo_cols:
             return pd.DataFrame()
 
+        # Coluna de descrição do produto (mesma lógica usada para os
+        # rótulos de HTS no seletor dos gráficos).
+        desc_col = None
         if hts_col:
+            if "Description" in df.columns:
+                desc_col = "Description"
+            else:
+                candidatos = [c for c in label_cols if c not in (hts_col, "Quantity Description")]
+                candidatos = [
+                    c for c in candidatos
+                    if df[c].dropna().astype(str).isin(COUNTRY_CODES.keys()).mean() < 0.5
+                    and df[c].dropna().astype(str).isin(DISTRICT_CODES.keys()).mean() < 0.5
+                ]
+                desc_col = candidatos[0] if candidatos else None
+
+        if hts_col:
+            colunas_extra = [c for c in [desc_col] if c and c in df.columns]
+            if not eh_medida_valor and "Quantity Description" in df.columns:
+                colunas_extra.append("Quantity Description")
             df_tot = (
-                df.groupby(hts_col, as_index=False)[periodo_cols]
-                .sum(min_count=1)
+                df.groupby(hts_col, as_index=False)
+                .agg({
+                    **{c: "first" for c in colunas_extra},
+                    **{c: "sum" for c in periodo_cols},
+                })
             )
+            # Reordena: HTS, Descrição, [Unidade de Medida], anos/meses
+            ordem = [hts_col] + colunas_extra + periodo_cols
+            df_tot = df_tot[ordem]
         else:
             soma = {c: df[c].sum(skipna=True) for c in periodo_cols}
             df_tot = pd.DataFrame([soma])
+
+        if "Quantity Description" in df_tot.columns:
+            df_tot["Quantity Description"] = (
+                df_tot["Quantity Description"]
+                .astype(str)
+                .str.replace("Value for: ", "", regex=False)
+            )
+            df_tot = df_tot.rename(columns={"Quantity Description": "Unidade de Medida"})
 
         df_tot["Total"] = df_tot[periodo_cols].sum(axis=1, skipna=True)
 
