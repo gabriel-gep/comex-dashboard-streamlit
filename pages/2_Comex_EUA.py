@@ -721,9 +721,12 @@ if "df_eua_multi" in st.session_state:
                     st.plotly_chart(fig2, use_container_width=True, key=f"grafico2_combinado_{combo_id}")
             else:
                 st.info(
-                    "Nenhuma quebra por via de entrada detectada nos dados atuais "
-                    "-- marque 'Via de entrada' nos filtros e desmarque 'Agregar "
-                    "todas as vias' para ver os gráficos por via."
+                    "Nenhuma quebra por via de entrada nos dados retornados para "
+                    "esta consulta -- isso costuma acontecer quando os filtros "
+                    "aplicados (país, HTS ou via) resultam em uma única via, ou "
+                    "quando nenhuma via de entrada específica foi selecionada e "
+                    "há poucos registros no período. Tente ampliar o intervalo "
+                    "de anos ou os países/HTS selecionados."
                 )
 
             # ------------------------------------------------------------
@@ -861,9 +864,12 @@ if "df_eua_multi" in st.session_state:
                     st.info("Sem valores no período selecionado para calcular percentuais.")
             else:
                 st.info(
-                    "Nenhuma quebra por país detectada nos dados atuais -- marque "
-                    "'Países de origem' nos filtros e desmarque 'Agregar todos os "
-                    "países' para ver este gráfico."
+                    "Nenhuma quebra por país nos dados retornados para esta "
+                    "consulta -- isso costuma acontecer quando apenas um país "
+                    "foi selecionado no filtro (não há o que separar) ou quando "
+                    "há poucos registros no período. Selecione mais de um país "
+                    "de origem, ou deixe o filtro vazio para trazer todos, e "
+                    "tente novamente."
                 )
 
             # ------------------------------------------------------------
@@ -989,6 +995,7 @@ if "df_eua_multi" in st.session_state:
             else:
                 st.info(
                     "Este gráfico exige quebra por país E por via de entrada ao "
-                    "mesmo tempo -- desmarque 'Agregar todos os países' e "
-                    "'Agregar todas as vias' nos filtros."
+                    "mesmo tempo nos dados retornados -- selecione mais de um "
+                    "país e mais de uma via nos filtros (ou deixe ambos vazios "
+                    "para trazer todos) e tente novamente."
                 )
