@@ -246,7 +246,7 @@ if "df_eua_multi" in st.session_state:
         return df_exibicao, periodo_cols
 
     def preparar_df_totais(df, medida_label):
-        """Tabela resumo por HTS (soma de país+via), para não perder a
+        """Tabela resumo por HTS (soma de país+via de entrada), para não perder a
         visão agregada agora que a consulta sempre vem desagregada.
         Mantém a descrição do produto e, em Quantidade, a unidade de
         medida (ambas constantes por HTS). Em Valor, inclui uma linha
@@ -328,7 +328,7 @@ if "df_eua_multi" in st.session_state:
                     for col in periodo_cols + (["Total"] if periodo_cols else [])
                 },
             )
-            st.markdown("**Detalhe (por País e Via)**")
+            st.markdown("**Detalhe (por País e Via de Entrada)**")
 
         st.success(f"{len(df_exibicao)} linha(s) retornada(s).")
         st.dataframe(
@@ -542,7 +542,7 @@ if "df_eua_multi" in st.session_state:
             else:
                 periodo_visivel = periodo_cols
 
-            # Detecta a coluna de via/distrito para quebrar os gráficos
+            # Detecta a coluna de via de entrada/distrito para quebrar os gráficos
             via_col = None
             for c in label_cols:
                 valores = df_fonte_grafico[c].dropna().astype(str)
@@ -571,14 +571,14 @@ if "df_eua_multi" in st.session_state:
 
                 col_label, col_btn = st.columns([5, 1])
                 with col_label:
-                    st.markdown("**Vias exibidas**")
+                    st.markdown("**Vias de Entrada exibidas**")
                 with col_btn:
                     if st.button("🔝 Restaurar Top 5", key=f"vias_grafico_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key] = True
                         st.rerun()
 
                 vias_selecionadas = st.multiselect(
-                    "Vias exibidas",
+                    "Vias de Entrada exibidas",
                     options=todas_vias_alfa,
                     default=top5_default,
                     key=ms_key,
@@ -586,7 +586,7 @@ if "df_eua_multi" in st.session_state:
                 )
 
                 if not vias_selecionadas:
-                    st.info("Selecione ao menos uma via para exibir os gráficos.")
+                    st.info("Selecione ao menos uma via de entrada para exibir os gráficos.")
                 else:
                     cols_por_linha = 2
                     for i in range(0, len(vias_selecionadas), cols_por_linha):
@@ -628,7 +628,7 @@ if "df_eua_multi" in st.session_state:
                                 st.plotly_chart(fig, use_container_width=True, key=chart_key)
 
                 # ------------------------------------------------------
-                # Gráfico 2 -- todas as vias combinadas num único gráfico
+                # Gráfico 2 -- todas as vias de entrada combinadas num único gráfico
                 # (padrão do dash Brasil: "Volume total transacionado por URF")
                 # ------------------------------------------------------
                 st.divider()
@@ -665,14 +665,14 @@ if "df_eua_multi" in st.session_state:
 
                 col_label2, col_btn2 = st.columns([5, 1])
                 with col_label2:
-                    st.markdown("**Vias exibidas**")
+                    st.markdown("**Vias de Entrada exibidas**")
                 with col_btn2:
                     if st.button("🔝 Restaurar Top 5", key=f"vias_grafico2_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key2] = True
                         st.rerun()
 
                 vias_selecionadas2 = st.multiselect(
-                    "Vias exibidas neste gráfico",
+                    "Vias de Entrada exibidas neste gráfico",
                     options=todas_vias_alfa,
                     default=top5_default,
                     key=ms_key2,
@@ -680,12 +680,12 @@ if "df_eua_multi" in st.session_state:
                     max_selections=MAX_VIAS_GRAFICO2,
                 )
                 st.caption(
-                    f"Máximo de {MAX_VIAS_GRAFICO2} vias por vez neste gráfico, "
+                    f"Máximo de {MAX_VIAS_GRAFICO2} vias de entrada por vez neste gráfico, "
                     "para manter as cores e a leitura claras."
                 )
 
                 if not vias_selecionadas2:
-                    st.info("Selecione ao menos uma via para exibir o gráfico.")
+                    st.info("Selecione ao menos uma via de entrada para exibir o gráfico.")
                 else:
                     paleta = pcolors.qualitative.Alphabet
                     fig2 = go.Figure()
@@ -708,7 +708,7 @@ if "df_eua_multi" in st.session_state:
                         plot_bgcolor="#DBF7FF",
                         paper_bgcolor="white",
                         height=600,
-                        legend_title="Via",
+                        legend_title="Via de Entrada",
                         legend=dict(
                             orientation="h", yanchor="top", y=-0.2,
                             xanchor="center", x=0.5,
@@ -723,7 +723,8 @@ if "df_eua_multi" in st.session_state:
                 st.info(
                     "Nenhuma quebra por via de entrada nos dados retornados para "
                     "esta consulta -- isso costuma acontecer quando os filtros "
-                    "aplicados (país, HTS ou via) resultam em uma única via, ou "
+                    "aplicados (país, HTS ou via de entrada) resultam em uma única via "
+                    "de entrada, ou "
                     "quando nenhuma via de entrada específica foi selecionada e "
                     "há poucos registros no período. Tente ampliar o intervalo "
                     "de anos ou os países/HTS selecionados."
@@ -873,15 +874,15 @@ if "df_eua_multi" in st.session_state:
                 )
 
             # ------------------------------------------------------------
-            # Gráfico 4 -- porcentagem por país, um mini-gráfico por via
-            # (top 5 países + "Outros" fixo por via -- sem seletor de país
+            # Gráfico 4 -- porcentagem por país, um mini-gráfico por via de entrada
+            # (top 5 países + "Outros" fixo por via de entrada -- sem seletor de país
             # aqui; o que é ajustável é QUAIS VIAS aparecem).
             # ------------------------------------------------------------
             st.divider()
             st.markdown(
                 f"""
                 <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                    Porcentagem por País de {metrica_grafico} (Realizado) Importado Separado por Via
+                    Porcentagem por País de {metrica_grafico} (Realizado) Importado Separado por Via de Entrada
                 </h2>
                 """,
                 unsafe_allow_html=True,
@@ -910,24 +911,24 @@ if "df_eua_multi" in st.session_state:
 
                 col_label4, col_btn4 = st.columns([5, 1])
                 with col_label4:
-                    st.markdown("**Vias exibidas (cada uma vira um mini-gráfico)**")
+                    st.markdown("**Vias de Entrada exibidas (cada uma vira um mini-gráfico)**")
                 with col_btn4:
                     if st.button("🔝 Restaurar Top 5", key=f"vias_grafico4_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key4] = True
                         st.rerun()
 
                 vias_selecionadas4 = st.multiselect(
-                    "Vias exibidas neste gráfico",
+                    "Vias de Entrada exibidas neste gráfico",
                     options=todas_vias_alfa,
                     default=top5_default,
                     key=ms_key4,
                     label_visibility="collapsed",
                     max_selections=8,
                 )
-                st.caption("Máximo de 8 vias por vez (cada uma gera um mini-gráfico).")
+                st.caption("Máximo de 8 vias de entrada por vez (cada uma gera um mini-gráfico).")
 
                 if not vias_selecionadas4:
-                    st.info("Selecione ao menos uma via para exibir os gráficos.")
+                    st.info("Selecione ao menos uma via de entrada para exibir os gráficos.")
                 else:
                     paleta4 = pcolors.qualitative.Alphabet
                     cols_por_linha4 = 2
@@ -935,7 +936,7 @@ if "df_eua_multi" in st.session_state:
                         cols4 = st.columns(cols_por_linha4)
                         for j, via in enumerate(vias_selecionadas4[i:i + cols_por_linha4]):
                             with cols4[j]:
-                                st.markdown(f"**Via: {via}**")
+                                st.markdown(f"**Via de Entrada: {via}**")
 
                                 df_via_pais = df_fonte_grafico[df_fonte_grafico[via_col] == via]
                                 df_via_pais = (
@@ -947,7 +948,7 @@ if "df_eua_multi" in st.session_state:
                                 total_via = df_via_pais["_valor"].sum()
 
                                 if not total_via or total_via <= 0:
-                                    st.info("Sem dados nessa via no período selecionado.")
+                                    st.info("Sem dados nessa via de entrada no período selecionado.")
                                     continue
 
                                 top5_via = df_via_pais.head(5)
@@ -980,7 +981,7 @@ if "df_eua_multi" in st.session_state:
                                     )
                                 )
                                 fig4.update_layout(
-                                    xaxis_title="% do total nessa via",
+                                    xaxis_title="% do total nessa via de entrada",
                                     yaxis=dict(categoryorder="array", categoryarray=labels4_h),
                                     plot_bgcolor="#DBF7FF",
                                     paper_bgcolor="white",
@@ -996,7 +997,7 @@ if "df_eua_multi" in st.session_state:
                 st.info(
                     "Este gráfico exige quebra por país E por via de entrada ao "
                     "mesmo tempo nos dados retornados -- selecione mais de um "
-                    "país e mais de uma via nos filtros (ou deixe ambos vazios "
+                    "país e mais de uma via de entrada nos filtros (ou deixe ambos vazios "
                     "para trazer todos) e tente novamente."
                 )
 
@@ -1087,4 +1088,131 @@ if "df_eua_multi" in st.session_state:
                     "Nenhuma quebra por país nos dados retornados para esta "
                     "consulta -- selecione mais de um país de origem, ou "
                     "deixe o filtro vazio para trazer todos, e tente novamente."
+                )
+
+            # ------------------------------------------------------------
+            # Gráfico 6 -- volume total (valor absoluto) por país, um
+            # mini-gráfico por via de entrada, corte Top 5 + "Outros" (mesma lógica
+            # do Gráfico 4, mas com valor absoluto -- equivalente ao "Volume
+            # total transacionado por País separado por URF" do Brasil).
+            # Barras horizontais (diferente do Brasil, que usa verticais).
+            # ------------------------------------------------------------
+            st.divider()
+            st.markdown(
+                f"""
+                <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
+                    Volume total transacionado em {metrica_grafico} (Realizado) por País Separado por Via de Entrada
+                </h2>
+                <p style='text-align:center; font-size:0.85rem; color:#666; margin:0;'>
+                    Top 5 + "Outros", por via de entrada
+                </p>
+                """,
+                unsafe_allow_html=True,
+            )
+            legenda_unidade_hts()
+
+            if via_col and country_col:
+                if len(periodo_cols) > 1:
+                    periodo6_inicio, periodo6_fim = st.select_slider(
+                        "Período considerado neste gráfico",
+                        options=periodo_cols,
+                        value=(periodo_cols[0], periodo_cols[-1]),
+                        key=f"periodo_slicer_grafico6_{combo_id}",
+                    )
+                    idx6_ini = periodo_cols.index(periodo6_inicio)
+                    idx6_fim = periodo_cols.index(periodo6_fim)
+                    periodo_visivel6 = periodo_cols[idx6_ini: idx6_fim + 1]
+                else:
+                    periodo_visivel6 = periodo_cols
+
+                ms_key6 = f"vias_grafico6_multiselect_{combo_id}"
+                reset_flag_key6 = f"vias_grafico6_reset_flag_{combo_id}"
+                if st.session_state.get(reset_flag_key6):
+                    st.session_state[ms_key6] = top5_default
+                    st.session_state[reset_flag_key6] = False
+
+                col_label6, col_btn6 = st.columns([5, 1])
+                with col_label6:
+                    st.markdown("**Vias de Entrada exibidas (cada uma vira um mini-gráfico)**")
+                with col_btn6:
+                    if st.button("🔝 Restaurar Top 5", key=f"vias_grafico6_reset_btn_{combo_id}", use_container_width=True):
+                        st.session_state[reset_flag_key6] = True
+                        st.rerun()
+
+                vias_selecionadas6 = st.multiselect(
+                    "Vias de Entrada exibidas neste gráfico",
+                    options=todas_vias_alfa,
+                    default=top5_default,
+                    key=ms_key6,
+                    label_visibility="collapsed",
+                    max_selections=8,
+                )
+                st.caption("Máximo de 8 vias de entrada por vez (cada uma gera um mini-gráfico).")
+
+                if not vias_selecionadas6:
+                    st.info("Selecione ao menos uma via de entrada para exibir os gráficos.")
+                else:
+                    cols_por_linha6 = 2
+                    for i in range(0, len(vias_selecionadas6), cols_por_linha6):
+                        cols6 = st.columns(cols_por_linha6)
+                        for j, via in enumerate(vias_selecionadas6[i:i + cols_por_linha6]):
+                            with cols6[j]:
+                                st.markdown(f"**Via de Entrada: {via}**")
+
+                                df_via_pais6 = df_fonte_grafico[df_fonte_grafico[via_col] == via]
+                                df_via_pais6 = (
+                                    df_via_pais6.groupby(country_col, as_index=False)[periodo_visivel6]
+                                    .sum(min_count=1)
+                                )
+                                df_via_pais6["_valor"] = df_via_pais6[periodo_visivel6].sum(axis=1, skipna=True)
+                                df_via_pais6 = df_via_pais6.sort_values("_valor", ascending=False).reset_index(drop=True)
+                                total_via6 = df_via_pais6["_valor"].sum()
+
+                                if not total_via6 or total_via6 <= 0:
+                                    st.info("Sem dados nessa via de entrada no período selecionado.")
+                                    continue
+
+                                top5_via6 = df_via_pais6.head(5)
+                                outros6 = df_via_pais6["_valor"].iloc[5:].sum()
+
+                                labels6 = top5_via6[country_col].tolist()
+                                valores6 = top5_via6["_valor"].tolist()
+                                if outros6 > 0:
+                                    labels6.append("Outros")
+                                    valores6.append(outros6)
+
+                                # Horizontal, maior no topo -- inverte antes de plotar.
+                                labels6_h = labels6[::-1]
+                                valores6_h = valores6[::-1]
+
+                                fig6 = go.Figure(
+                                    go.Bar(
+                                        x=valores6_h,
+                                        y=labels6_h,
+                                        orientation="h",
+                                        marker_color="#042373",
+                                        text=[f"{v:,.0f}" for v in valores6_h],
+                                        textposition="outside",
+                                        hovertemplate="%{y}<br>%{x:,.0f}<extra></extra>",
+                                    )
+                                )
+                                fig6.update_layout(
+                                    xaxis_title=metrica_grafico,
+                                    yaxis=dict(categoryorder="array", categoryarray=labels6_h),
+                                    plot_bgcolor="#DBF7FF",
+                                    paper_bgcolor="white",
+                                    height=350,
+                                    showlegend=False,
+                                    margin=dict(t=30, b=40, l=100, r=60),
+                                )
+                                fig6.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                fig6.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                chart6_key = "grafico6_" + re.sub(r"\W+", "_", str(via).lower()) + f"_{combo_id}"
+                                st.plotly_chart(fig6, use_container_width=True, key=chart6_key)
+            else:
+                st.info(
+                    "Este gráfico exige quebra por país E por via de entrada ao "
+                    "mesmo tempo nos dados retornados -- selecione mais de um "
+                    "país e mais de uma via de entrada nos filtros (ou deixe ambos vazios "
+                    "para trazer todos) e tente novamente."
                 )
