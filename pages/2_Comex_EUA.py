@@ -845,18 +845,20 @@ if "df_eua_multi" in st.session_state:
                                 marker_color=cores_h,
                                 text=[f"{p:.1f}%" for p in percentuais_h],
                                 textposition="outside",
+                                cliponaxis=False,
                                 hovertemplate="%{y}<br>%{x:.2f}%<extra></extra>",
                             )
                         )
                         fig3.update_layout(
                             xaxis_title="% do total importado",
+                            xaxis=dict(range=[0, max(percentuais_h) * 1.2]),
                             yaxis_title="País",
                             yaxis=dict(categoryorder="array", categoryarray=labels_h),
                             plot_bgcolor="#DBF7FF",
                             paper_bgcolor="white",
                             height=500,
                             showlegend=False,
-                            margin=dict(t=50, b=50, l=50, r=80),
+                            margin=dict(t=50, b=50, l=50, r=90),
                         )
                         fig3.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                         fig3.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
@@ -977,17 +979,19 @@ if "df_eua_multi" in st.session_state:
                                         marker_color=cores4_h,
                                         text=[f"{p:.1f}%" for p in percentuais4_h],
                                         textposition="outside",
+                                cliponaxis=False,
                                         hovertemplate="%{y}<br>%{x:.2f}%<extra></extra>",
                                     )
                                 )
                                 fig4.update_layout(
                                     xaxis_title="% do total nessa via de entrada",
+                                    xaxis=dict(range=[0, max(percentuais4_h) * 1.2]),
                                     yaxis=dict(categoryorder="array", categoryarray=labels4_h),
                                     plot_bgcolor="#DBF7FF",
                                     paper_bgcolor="white",
                                     height=350,
                                     showlegend=False,
-                                    margin=dict(t=30, b=40, l=100, r=50),
+                                    margin=dict(t=30, b=40, l=100, r=70),
                                 )
                                 fig4.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 fig4.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
@@ -1065,6 +1069,7 @@ if "df_eua_multi" in st.session_state:
                             marker_color="#042373",
                             text=[f"{v:,.0f}" for v in valores5],
                             textposition="outside",
+                                cliponaxis=False,
                             hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                         )
                     )
@@ -1072,11 +1077,12 @@ if "df_eua_multi" in st.session_state:
                         xaxis_title="País",
                         yaxis_title=metrica_grafico,
                         xaxis=dict(categoryorder="array", categoryarray=labels5, tickangle=0),
+                        yaxis=dict(range=[0, max(valores5) * 1.15]),
                         plot_bgcolor="#DBF7FF",
                         paper_bgcolor="white",
                         height=550,
                         showlegend=False,
-                        margin=dict(t=50, b=100, l=60, r=40),
+                        margin=dict(t=60, b=100, l=60, r=40),
                     )
                     fig5.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                     fig5.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
@@ -1193,17 +1199,19 @@ if "df_eua_multi" in st.session_state:
                                         marker_color="#042373",
                                         text=[f"{v:,.0f}" for v in valores6_h],
                                         textposition="outside",
+                                cliponaxis=False,
                                         hovertemplate="%{y}<br>%{x:,.0f}<extra></extra>",
                                     )
                                 )
                                 fig6.update_layout(
                                     xaxis_title=metrica_grafico,
+                                    xaxis=dict(range=[0, max(valores6_h) * 1.2]),
                                     yaxis=dict(categoryorder="array", categoryarray=labels6_h),
                                     plot_bgcolor="#DBF7FF",
                                     paper_bgcolor="white",
                                     height=350,
                                     showlegend=False,
-                                    margin=dict(t=30, b=40, l=100, r=60),
+                                    margin=dict(t=30, b=40, l=100, r=80),
                                 )
                                 fig6.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 fig6.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
