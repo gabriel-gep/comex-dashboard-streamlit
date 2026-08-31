@@ -999,3 +999,89 @@ if "df_eua_multi" in st.session_state:
                     "país e mais de uma via nos filtros (ou deixe ambos vazios "
                     "para trazer todos) e tente novamente."
                 )
+
+            # ------------------------------------------------------------
+            # Gráfico 5 -- volume total (valor absoluto) por país, barras
+            # verticais, corte por Top 95% acumulado + "Outros" (não top 5
+            # fixo -- equivalente ao gráfico "Volume total transacionado
+            # por País" do dash Brasil).
+            # ------------------------------------------------------------
+            st.divider()
+            st.markdown(
+                f"""
+                <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
+                    Volume total transacionado em {metrica_grafico} (Realizado) por País
+                </h2>
+                """,
+                unsafe_allow_html=True,
+            )
+            legenda_unidade_hts()
+
+            if country_col:
+                if len(periodo_cols) > 1:
+                    periodo5_inicio, periodo5_fim = st.select_slider(
+                        "Período considerado neste gráfico",
+                        options=periodo_cols,
+                        value=(periodo_cols[0], periodo_cols[-1]),
+                        key=f"periodo_slicer_grafico5_{combo_id}",
+                    )
+                    idx5_ini = periodo_cols.index(periodo5_inicio)
+                    idx5_fim = periodo_cols.index(periodo5_fim)
+                    periodo_visivel5 = periodo_cols[idx5_ini: idx5_fim + 1]
+                else:
+                    periodo_visivel5 = periodo_cols
+
+                df_pais5 = (
+                    df_fonte_grafico.groupby(country_col, as_index=False)[periodo_visivel5]
+                    .sum(min_count=1)
+                )
+                df_pais5["_valor"] = df_pais5[periodo_visivel5].sum(axis=1, skipna=True)
+                df_pais5 = df_pais5.sort_values("_valor", ascending=False).reset_index(drop=True)
+
+                total_geral5 = df_pais5["_valor"].sum()
+
+                if total_geral5 and total_geral5 > 0:
+                    df_pais5["_perc_acumulado"] = df_pais5["_valor"].cumsum() / total_geral5
+                    candidatos_95 = df_pais5[df_pais5["_perc_acumulado"] >= 0.95].index
+                    idx_limite5 = candidatos_95.min() if len(candidatos_95) else len(df_pais5) - 1
+
+                    df_top95 = df_pais5.iloc[: idx_limite5 + 1].copy()
+                    outros_valor5 = df_pais5["_valor"].iloc[idx_limite5 + 1:].sum()
+
+                    labels5 = df_top95[country_col].tolist()
+                    valores5 = df_top95["_valor"].tolist()
+                    if outros_valor5 > 0:
+                        labels5.append("Outros")
+                        valores5.append(outros_valor5)
+
+                    fig5 = go.Figure(
+                        go.Bar(
+                            x=labels5,
+                            y=valores5,
+                            marker_color="#042373",
+                            text=[f"{v:,.0f}" for v in valores5],
+                            textposition="outside",
+                            hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                        )
+                    )
+                    fig5.update_layout(
+                        xaxis_title="País",
+                        yaxis_title=metrica_grafico,
+                        xaxis=dict(categoryorder="array", categoryarray=labels5, tickangle=0),
+                        plot_bgcolor="#DBF7FF",
+                        paper_bgcolor="white",
+                        height=550,
+                        showlegend=False,
+                        margin=dict(t=50, b=100, l=60, r=40),
+                    )
+                    fig5.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    fig5.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    st.plotly_chart(fig5, use_container_width=True, key=f"grafico5_pais_{combo_id}")
+                else:
+                    st.info("Sem valores no período selecionado para exibir este gráfico.")
+            else:
+                st.info(
+                    "Nenhuma quebra por país nos dados retornados para esta "
+                    "consulta -- selecione mais de um país de origem, ou "
+                    "deixe o filtro vazio para trazer todos, e tente novamente."
+                )
