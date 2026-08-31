@@ -1012,6 +1012,9 @@ if "df_eua_multi" in st.session_state:
                 <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
                     Volume total transacionado em {metrica_grafico} (Realizado) por País
                 </h2>
+                <p style='text-align:center; font-size:0.85rem; color:#666; margin:0;'>
+                    Top 95% acumulado + "Outros"
+                </p>
                 """,
                 unsafe_allow_html=True,
             )
