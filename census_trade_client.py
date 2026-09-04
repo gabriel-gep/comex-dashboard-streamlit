@@ -109,6 +109,12 @@ def fetch_mode_of_transport(
 
     header, *rows = raw
     df = pd.DataFrame(rows, columns=header)
+    # Quando uma variável é usada tanto como campo pedido ("get") quanto
+    # como filtro (predicate) -- caso de DISTRICT/CTY_CODE quando
+    # district_codes/country_codes são informados -- a API "ecoa" essa
+    # variável de volta como uma coluna duplicada. Mantém só a primeira
+    # ocorrência (mesmo comportamento já visto com I_COMMODITY).
+    df = df.loc[:, ~df.columns.duplicated()]
 
     df = df[df["DISTRICT"] != "-"].copy()
     if "CTY_CODE" in df.columns:
