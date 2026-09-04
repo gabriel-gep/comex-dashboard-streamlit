@@ -1084,10 +1084,12 @@ if "df_eua_multi" in st.session_state:
 
                 if df_census is not None and df_census.empty:
                     st.info(
-                        "Sem dados de modal de transporte para esse(s) HTS/período "
-                        "-- o código pode ter sido revisado na classificação usada "
-                        "por essa fonte (isso já aconteceu num dos nossos testes). "
-                        "Tente outro HTS ou intervalo de anos."
+                        "Sem dados de modal de transporte para essa combinação de "
+                        "HTS, período, país e/ou via de entrada. Isso pode acontecer "
+                        "porque: (1) o HTS foi revisado na classificação usada por "
+                        "essa fonte, ou (2) o país/via filtrado não teve comércio "
+                        "registrado nesse recorte. Tente ampliar os filtros, o "
+                        "intervalo de anos, ou usar outro HTS."
                     )
                 elif df_census is not None:
                     if monthly:
@@ -1153,12 +1155,32 @@ if "df_eua_multi" in st.session_state:
                                 hoverinfo="skip",  # o tooltip combinado é a trace invisível abaixo
                             )
                         )
-                        # Rótulo direto no fim da linha, à direita -- substitui
-                        # a legenda tradicional.
-                        ultimo_x = df_modal_visivel["_periodo_label"].iloc[-1]
-                        ultimo_y = df_modal_visivel[col].iloc[-1]
+
+                    # Rótulos diretos no fim das linhas, à direita -- substituem
+                    # a legenda tradicional. Calculados à parte (não dentro do
+                    # loop acima) para poder afastar rótulos que ficariam
+                    # sobrepostos quando os valores finais são muito próximos.
+                    ultimo_x = df_modal_visivel["_periodo_label"].iloc[-1]
+                    ultimos_y = {col: df_modal_visivel[col].iloc[-1] for col in colunas_valor}
+
+                    y_max_eixo = max(df_modal_visivel[c].max() for c in colunas_valor)
+                    gap_minimo = y_max_eixo * 0.07 if y_max_eixo > 0 else 1
+
+                    # Ajusta de baixo para cima, garantindo distância mínima
+                    # entre rótulos consecutivos (sem alterar a posição da
+                    # própria linha -- só a do texto).
+                    ordenado_por_y = sorted(ultimos_y.items(), key=lambda par: par[1])
+                    y_ajustado = {}
+                    y_anterior = None
+                    for col, y in ordenado_por_y:
+                        if y_anterior is not None and y - y_anterior < gap_minimo:
+                            y = y_anterior + gap_minimo
+                        y_ajustado[col] = y
+                        y_anterior = y
+
+                    for col in colunas_valor:
                         fig_modal.add_annotation(
-                            x=ultimo_x, y=ultimo_y,
+                            x=ultimo_x, y=y_ajustado[col],
                             text=nomes_modal[col],
                             showarrow=False,
                             xanchor="left",
@@ -1202,6 +1224,9 @@ if "df_eua_multi" in st.session_state:
                         paper_bgcolor="white",
                         height=500,
                         showlegend=False,
+                        hovermode="x",  # dispara o tooltip em qualquer ponto da
+                                        # coluna (independente da distância vertical
+                                        # até o marcador invisível)
                         margin=dict(t=40, b=50, l=50, r=110),
                     )
                     fig_modal.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
