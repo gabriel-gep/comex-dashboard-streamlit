@@ -44,8 +44,10 @@ st.markdown(
 )
 
 st.warning(
-    "**Fonte:** USITC DataWeb (dados oficiais de comércio exterior dos EUA). "
-    "Consulta atual cobre apenas **Importações** (Import For Consumption), por código HTS."
+    "**Fontes:** USITC DataWeb e Census Bureau International Trade API "
+    "(dados oficiais de comércio exterior dos EUA). "
+    "Consulta atual cobre apenas **Importações** (Import For Consumption), por código HTS. "
+    "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb."
 )
 
 st.markdown("""
@@ -212,9 +214,14 @@ if buscar:
 # a cada rerun do Streamlit; só refaz a chamada se HTS/anos/chave mudarem.
 # --------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
-def _fetch_census_modal_cached(hts_tuple, year_start_str, year_end_str, api_key):
+def _fetch_census_modal_cached(
+    hts_tuple, year_start_str, year_end_str, api_key,
+    district_codes_tuple=None, country_codes_tuple=None,
+):
     return census_trade_client.fetch_mode_of_transport_multi_hts(
-        list(hts_tuple), year_start_str, year_end_str, api_key
+        list(hts_tuple), year_start_str, year_end_str, api_key,
+        district_codes=list(district_codes_tuple) if district_codes_tuple else None,
+        country_codes=list(country_codes_tuple) if country_codes_tuple else None,
     )
 
 
@@ -1058,10 +1065,18 @@ if "df_eua_multi" in st.session_state:
             else:
                 hts_para_buscar = [hts_escolhido] if hts_escolhido else hts_codes
 
+                # Reaproveita os mesmos filtros de país/via já selecionados
+                # na barra lateral (para o DataWeb) -- CTY_CODE e DISTRICT
+                # da Census usam exatamente os mesmos códigos Schedule C/D.
+                district_codes_census = [DISTRICT_CODES[d] for d in districts if d in DISTRICT_CODES] or None
+                country_codes_census = [COUNTRY_CODES[c] for c in countries if c in COUNTRY_CODES] or None
+
                 with st.spinner("Consultando Census Bureau International Trade API..."):
                     try:
                         df_census = _fetch_census_modal_cached(
-                            tuple(hts_para_buscar), str(year_start), str(year_end), CENSUS_API_KEY
+                            tuple(hts_para_buscar), str(year_start), str(year_end), CENSUS_API_KEY,
+                            tuple(district_codes_census) if district_codes_census else None,
+                            tuple(country_codes_census) if country_codes_census else None,
                         )
                     except Exception as e:
                         df_census = None
@@ -1118,9 +1133,15 @@ if "df_eua_multi" in st.session_state:
                         "Valor Maritimo": "Marítimo",
                         "Valor Terrestre": "Terrestre",
                     }
+                    colunas_valor = ["Valor Aereo", "Valor Maritimo", "Valor Terrestre"]
+
+                    # Ordena os modais pelo total no período visível -- só
+                    # define a ordem dos rótulos diretos no fim das linhas.
+                    totais_modal = {col: df_modal_visivel[col].sum() for col in colunas_valor}
+                    ordem_modal = sorted(totais_modal, key=totais_modal.get, reverse=True)
 
                     fig_modal = go.Figure()
-                    for col in ["Valor Aereo", "Valor Maritimo", "Valor Terrestre"]:
+                    for col in ordem_modal:
                         fig_modal.add_trace(
                             go.Scatter(
                                 x=df_modal_visivel["_periodo_label"],
@@ -1128,17 +1149,60 @@ if "df_eua_multi" in st.session_state:
                                 mode="lines+markers",
                                 name=nomes_modal[col],
                                 line=dict(color=cores_modal[col]),
-                                hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                                showlegend=False,
+                                hoverinfo="skip",  # o tooltip combinado é a trace invisível abaixo
                             )
                         )
+                        # Rótulo direto no fim da linha, à direita -- substitui
+                        # a legenda tradicional.
+                        ultimo_x = df_modal_visivel["_periodo_label"].iloc[-1]
+                        ultimo_y = df_modal_visivel[col].iloc[-1]
+                        fig_modal.add_annotation(
+                            x=ultimo_x, y=ultimo_y,
+                            text=nomes_modal[col],
+                            showarrow=False,
+                            xanchor="left",
+                            xshift=10,
+                            font=dict(color=cores_modal[col], size=13),
+                        )
+
+                    # Trace invisível com o tooltip combinado dos 3 modais,
+                    # ordenado do maior para o menor -- especificamente para
+                    # CADA ponto (mês/ano), não pela ordem geral do período.
+                    hover_textos = []
+                    y_topo = []
+                    for _, row in df_modal_visivel.iterrows():
+                        pares = sorted(
+                            ((nomes_modal[c], row[c]) for c in colunas_valor),
+                            key=lambda par: par[1],
+                            reverse=True,
+                        )
+                        texto = f"<b>{row['_periodo_label']}</b><br>" + "<br>".join(
+                            f"{nome}: {valor:,.0f}" for nome, valor in pares
+                        )
+                        hover_textos.append(texto)
+                        y_topo.append(max(row[c] for c in colunas_valor))
+
+                    fig_modal.add_trace(
+                        go.Scatter(
+                            x=df_modal_visivel["_periodo_label"],
+                            y=y_topo,
+                            mode="markers",
+                            marker=dict(opacity=0, size=20),
+                            hoverinfo="text",
+                            hovertext=hover_textos,
+                            showlegend=False,
+                        )
+                    )
+
                     fig_modal.update_layout(
                         xaxis_title="Período",
                         yaxis_title="Valor (USD)",
                         plot_bgcolor="#DBF7FF",
                         paper_bgcolor="white",
                         height=500,
-                        legend_title="Modal",
-                        margin=dict(t=40, b=50, l=50, r=50),
+                        showlegend=False,
+                        margin=dict(t=40, b=50, l=50, r=110),
                     )
                     fig_modal.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                     fig_modal.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
