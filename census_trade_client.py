@@ -15,6 +15,10 @@ Lógica validada manualmente via Postman:
   subconjunto do marítimo, não usado.
 - Terrestre = GEN_VAL_MO - AIR_VAL_MO - VES_VAL_MO (nunca negativo nos
   testes feitos com dois produtos/meses diferentes).
+- CTY_CODE e DISTRICT usam exatamente os mesmos códigos Schedule C/D já
+  usados no dataweb_client.py (confirmado empiricamente: Canadá=1220,
+  México=2010, distrito de Nova York=10 etc.) -- por isso os filtros de
+  país/via aqui reaproveitam COUNTRY_CODES/DISTRICT_CODES do outro módulo.
 """
 
 from __future__ import annotations
@@ -31,6 +35,8 @@ FIELDS = [
     "I_COMMODITY_SDESC",
     "DISTRICT",
     "DIST_NAME",
+    "CTY_CODE",
+    "CTY_NAME",
     "GEN_VAL_MO",
     "AIR_VAL_MO",
     "VES_VAL_MO",
@@ -53,12 +59,26 @@ def fetch_mode_of_transport(
     year_end: str,
     api_key: str,
     comm_lvl: Optional[str] = None,
+    district_codes: Optional[list[str]] = None,
+    country_codes: Optional[list[str]] = None,
     timeout: int = 30,
 ) -> pd.DataFrame:
     """
     Busca valor de importação por modo de transporte (Aéreo, Marítimo,
-    Terrestre calculado), por distrito e mês, para um código HTS.
-    Retorna DataFrame vazio (sem erro) se a API não tiver dados (204).
+    Terrestre calculado), por distrito/país e mês, para um código HTS.
+
+    Parameters
+    ----------
+    district_codes : lista de códigos de distrito (Schedule D, 2 dígitos
+        -- os mesmos usados em DISTRICT_CODES do dataweb_client.py) para
+        filtrar. Se None/vazio, traz todos os distritos.
+    country_codes : lista de códigos de país (Schedule C -- os mesmos
+        usados em COUNTRY_CODES do dataweb_client.py) para filtrar. Se
+        None/vazio, traz todos os países.
+
+    Returns
+    -------
+    DataFrame vazio (sem erro) se a API não tiver dados (204).
     """
     if comm_lvl is None:
         comm_lvl = _inferir_comm_lvl(hts_code)
@@ -71,6 +91,10 @@ def fetch_mode_of_transport(
     }
     if comm_lvl:
         params["COMM_LVL"] = comm_lvl
+    if district_codes:
+        params["DISTRICT"] = ",".join(district_codes)
+    if country_codes:
+        params["CTY_CODE"] = ",".join(country_codes)
 
     resp = requests.get(BASE_URL, params=params, timeout=timeout)
 
@@ -87,6 +111,8 @@ def fetch_mode_of_transport(
     df = pd.DataFrame(rows, columns=header)
 
     df = df[df["DISTRICT"] != "-"].copy()
+    if "CTY_CODE" in df.columns:
+        df = df[df["CTY_CODE"] != "-"].copy()
     if df.empty:
         return df
 
@@ -105,6 +131,8 @@ def fetch_mode_of_transport(
         "I_COMMODITY_SDESC": "Description",
         "DISTRICT": "District_Code",
         "DIST_NAME": "District",
+        "CTY_CODE": "Country_Code",
+        "CTY_NAME": "Country",
         "GEN_VAL_MO": "Valor Total",
         "AIR_VAL_MO": "Valor Aereo",
         "VES_VAL_MO": "Valor Maritimo",
@@ -112,10 +140,12 @@ def fetch_mode_of_transport(
     })
 
     colunas_finais = [
-        "HTS", "Description", "District_Code", "District", "Ano", "Mes_Num",
+        "HTS", "Description", "District_Code", "District",
+        "Country_Code", "Country", "Ano", "Mes_Num",
         "Valor Aereo", "Valor Maritimo", "Valor Terrestre", "Valor Total",
     ]
-    return df[colunas_finais].reset_index(drop=True)
+    colunas_presentes = [c for c in colunas_finais if c in df.columns]
+    return df[colunas_presentes].reset_index(drop=True)
 
 
 def fetch_mode_of_transport_multi_hts(
@@ -124,6 +154,8 @@ def fetch_mode_of_transport_multi_hts(
     year_end: str,
     api_key: str,
     comm_lvl: Optional[str] = None,
+    district_codes: Optional[list[str]] = None,
+    country_codes: Optional[list[str]] = None,
 ) -> pd.DataFrame:
     """
     Mesma coisa que fetch_mode_of_transport, mas para vários HTS de uma
@@ -131,7 +163,10 @@ def fetch_mode_of_transport_multi_hts(
     """
     partes = []
     for hts in hts_codes:
-        df_hts = fetch_mode_of_transport(hts, year_start, year_end, api_key, comm_lvl)
+        df_hts = fetch_mode_of_transport(
+            hts, year_start, year_end, api_key, comm_lvl,
+            district_codes=district_codes, country_codes=country_codes,
+        )
         if not df_hts.empty:
             partes.append(df_hts)
 
