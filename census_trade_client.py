@@ -5,29 +5,20 @@ Cliente para a Census Bureau International Trade API -- usado
 especificamente para trazer dados de MODO DE TRANSPORTE (Aéreo, Marítimo,
 Terrestre), que não está disponível na API do DataWeb.
 
-Esse módulo é independente do dataweb_client.py -- fonte de dados
-diferente, formato de resposta diferente, autenticação diferente (chave
-simples via querystring, sem token com prazo de validade).
-
 Documentação oficial:
 https://www.census.gov/data/developers/data-sets/international-trade.html
 Cadastro de chave (gratuita, aparentemente permanente):
 https://api.census.gov/data/key_signup.html
 
-Lógica validada manualmente via Postman (ver histórico da conversa):
-- CNT_VAL_MO (marítimo containerizado) é sempre igual a VES_VAL_MO nesse
-  endpoint -- é um subconjunto do marítimo, não usamos.
-- Não existe uma variável direta de "terrestre" (rodoviário/ferroviário).
-  Ela é obtida por diferença: GEN_VAL_MO - AIR_VAL_MO - VES_VAL_MO.
-  Testado em dois produtos/meses diferentes (crabs congelados e tomates
-  frescos) -- nunca deu negativo; distritos de fronteira terrestre
-  (Laredo, Nogales, Detroit etc.) vêm 100% como "terrestre calculado",
-  e distritos portuários/aeroportuários batem exatamente com AIR+VES.
+Lógica validada manualmente via Postman:
+- CNT_VAL_MO (marítimo containerizado) é sempre igual a VES_VAL_MO --
+  subconjunto do marítimo, não usado.
+- Terrestre = GEN_VAL_MO - AIR_VAL_MO - VES_VAL_MO (nunca negativo nos
+  testes feitos com dois produtos/meses diferentes).
 """
 
 from __future__ import annotations
 
-import re
 from typing import Optional
 
 import pandas as pd
@@ -53,10 +44,6 @@ def _inferir_comm_lvl(hts_code: str) -> Optional[str]:
 
 
 def _time_param(year_start: str, year_end: str) -> str:
-    """
-    Monta o parâmetro 'time' no formato de intervalo mensal esperado pela
-    Census API: 'from YYYY-01 to YYYY-12'.
-    """
     return f"from {year_start}-01 to {year_end}-12"
 
 
@@ -70,27 +57,8 @@ def fetch_mode_of_transport(
 ) -> pd.DataFrame:
     """
     Busca valor de importação por modo de transporte (Aéreo, Marítimo,
-    Terrestre calculado), por distrito e mês, para um código HTS, num
-    intervalo de anos.
-
-    Parameters
-    ----------
-    hts_code : código HTS sem pontuação (2, 4, 6 ou 10 dígitos). HTS de
-        10 dígitos pode não ter dado se o código tiver sido revisado --
-        nesse caso a API retorna 204 e essa função devolve um DataFrame
-        vazio (não é erro).
-    year_start, year_end : anos como string (ex: "2020", "2023").
-    api_key : chave da Census API (gratuita, ver link no topo do arquivo).
-    comm_lvl : nível de agregação do código ("HS2","HS4","HS6","HS10").
-        Se None, é inferido automaticamente pelo tamanho do hts_code.
-
-    Returns
-    -------
-    DataFrame com uma linha por (distrito, ano, mês), já com a coluna
-    "Valor Terrestre" calculada. Colunas:
-    HTS, Description, District_Code, District, Ano, Mes_Num,
-    Valor Aereo, Valor Maritimo, Valor Terrestre, Valor Total.
-    DataFrame vazio (sem erro) se a API não tiver dados para essa consulta.
+    Terrestre calculado), por distrito e mês, para um código HTS.
+    Retorna DataFrame vazio (sem erro) se a API não tiver dados (204).
     """
     if comm_lvl is None:
         comm_lvl = _inferir_comm_lvl(hts_code)
@@ -107,8 +75,6 @@ def fetch_mode_of_transport(
     resp = requests.get(BASE_URL, params=params, timeout=timeout)
 
     if resp.status_code == 204:
-        # Consulta válida, mas sem dados para essa combinação -- comum
-        # quando o HTS foi revisado/descontinuado no período pedido.
         return pd.DataFrame()
 
     resp.raise_for_status()
@@ -120,9 +86,6 @@ def fetch_mode_of_transport(
     header, *rows = raw
     df = pd.DataFrame(rows, columns=header)
 
-    # Remove a linha de total agregado (DISTRICT == "-") -- mantém só o
-    # detalhe por distrito, consistente com o padrão "sempre desagregado"
-    # já usado no restante do app.
     df = df[df["DISTRICT"] != "-"].copy()
     if df.empty:
         return df
@@ -163,10 +126,8 @@ def fetch_mode_of_transport_multi_hts(
     comm_lvl: Optional[str] = None,
 ) -> pd.DataFrame:
     """
-    Mesma coisa que fetch_mode_of_transport, mas para vários códigos HTS
-    de uma vez (a API só aceita um I_COMMODITY por chamada, então isso
-    faz uma chamada por HTS e concatena os resultados). HTS sem dados
-    (204) são simplesmente ignorados no resultado final -- não geram erro.
+    Mesma coisa que fetch_mode_of_transport, mas para vários HTS de uma
+    vez (concatena os resultados; HTS sem dados são ignorados).
     """
     partes = []
     for hts in hts_codes:
