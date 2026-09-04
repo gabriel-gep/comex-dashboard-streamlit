@@ -21,6 +21,7 @@ from dataweb_client import (
     COUNTRY_CODES,
     DISTRICT_CODES,
 )
+import census_trade_client
 
 # Tradução dos rótulos de medida que vêm da API (em inglês) para exibição
 TABLE_LABEL_PT = {
@@ -111,10 +112,11 @@ buscar = st.sidebar.button(
 )
 
 # --------------------------------------------------------------------
-# Token vem dos secrets, sem alerta visual (monitoramento é feito
+# Tokens/chaves vêm dos secrets, sem alerta visual (monitoramento é feito
 # separadamente via GitHub Actions + e-mail)
 # --------------------------------------------------------------------
 TOKEN = st.secrets.get("DATAWEB_TOKEN")
+CENSUS_API_KEY = st.secrets.get("CENSUS_API_KEY")
 
 # --------------------------------------------------------------------
 # Execução da consulta
@@ -204,6 +206,22 @@ if buscar:
     st.session_state["df_eua_multi"] = dfs_por_medida
     st.session_state["df_eua_monthly"] = monthly
     st.session_state["df_eua_years"] = years
+
+# --------------------------------------------------------------------
+# Cache da consulta à Census API (modo de transporte) -- evita rebuscar
+# a cada rerun do Streamlit; só refaz a chamada se HTS/anos/chave mudarem.
+# --------------------------------------------------------------------
+@st.cache_data(show_spinner=False, ttl=3600)
+def _fetch_census_modal_cached(hts_tuple, year_start_str, year_end_str, api_key):
+    return census_trade_client.fetch_mode_of_transport_multi_hts(
+        list(hts_tuple), year_start_str, year_end_str, api_key
+    )
+
+
+MES_ABBR_PT = {
+    "01": "Jan", "02": "Fev", "03": "Mar", "04": "Abr", "05": "Mai", "06": "Jun",
+    "07": "Jul", "08": "Ago", "09": "Set", "10": "Out", "11": "Nov", "12": "Dez",
+}
 
 # --------------------------------------------------------------------
 # Exibição
@@ -1004,6 +1022,127 @@ if "df_eua_multi" in st.session_state:
                     "país e mais de uma via de entrada nos filtros (ou deixe ambos vazios "
                     "para trazer todos) e tente novamente."
                 )
+
+            # ------------------------------------------------------------
+            # Gráfico 4.5 -- volume por MODAL DE TRANSPORTE (Aéreo, Marítimo,
+            # Terrestre) -- fonte diferente (Census Bureau International
+            # Trade API), só disponível para Valor (USD). Terrestre é
+            # calculado por diferença (GEN - AIR - VES), validado
+            # manualmente via Postman (ver histórico da conversa).
+            # ------------------------------------------------------------
+            st.divider()
+            st.markdown(
+                """
+                <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
+                    Volume total transacionado em Valor (USD) (Realizado) por Modal de Transporte
+                </h2>
+                <p style='text-align:center; font-size:0.85rem; color:#666; margin:0;'>
+                    Fonte: Census Bureau International Trade API -- Aéreo e Marítimo
+                    diretos da fonte; Terrestre (rodoviário/ferroviário) calculado
+                    por diferença em relação ao total.
+                </p>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            if metrica_grafico == "Quantidade":
+                st.info(
+                    "Modal de transporte só está disponível para **Valor (USD)** -- "
+                    "a Census API não expõe quantidade quebrada por modal."
+                )
+            elif not CENSUS_API_KEY:
+                st.info(
+                    "Configure `CENSUS_API_KEY` em st.secrets para habilitar este "
+                    "gráfico (chave gratuita: https://api.census.gov/data/key_signup.html)."
+                )
+            else:
+                hts_para_buscar = [hts_escolhido] if hts_escolhido else hts_codes
+
+                with st.spinner("Consultando Census Bureau International Trade API..."):
+                    try:
+                        df_census = _fetch_census_modal_cached(
+                            tuple(hts_para_buscar), str(year_start), str(year_end), CENSUS_API_KEY
+                        )
+                    except Exception as e:
+                        df_census = None
+                        st.error(f"Erro ao consultar a Census API: {e}")
+
+                if df_census is not None and df_census.empty:
+                    st.info(
+                        "Sem dados de modal de transporte para esse(s) HTS/período "
+                        "-- o código pode ter sido revisado na classificação usada "
+                        "por essa fonte (isso já aconteceu num dos nossos testes). "
+                        "Tente outro HTS ou intervalo de anos."
+                    )
+                elif df_census is not None:
+                    if monthly:
+                        df_census["_periodo_label"] = (
+                            df_census["Mes_Num"].map(MES_ABBR_PT) + "/" + df_census["Ano"]
+                        )
+                        df_census["_periodo_sort"] = df_census["Ano"] + df_census["Mes_Num"]
+                    else:
+                        df_census["_periodo_label"] = df_census["Ano"]
+                        df_census["_periodo_sort"] = df_census["Ano"]
+
+                    df_modal = (
+                        df_census.groupby(["_periodo_label", "_periodo_sort"], as_index=False)[
+                            ["Valor Aereo", "Valor Maritimo", "Valor Terrestre"]
+                        ]
+                        .sum()
+                        .sort_values("_periodo_sort")
+                        .reset_index(drop=True)
+                    )
+
+                    periodo_modal_cols = df_modal["_periodo_label"].tolist()
+
+                    if len(periodo_modal_cols) > 1:
+                        pm_inicio, pm_fim = st.select_slider(
+                            "Período considerado neste gráfico",
+                            options=periodo_modal_cols,
+                            value=(periodo_modal_cols[0], periodo_modal_cols[-1]),
+                            key=f"periodo_slicer_modal_{combo_id}",
+                        )
+                        idx_pm_ini = periodo_modal_cols.index(pm_inicio)
+                        idx_pm_fim = periodo_modal_cols.index(pm_fim)
+                        df_modal_visivel = df_modal.iloc[idx_pm_ini: idx_pm_fim + 1]
+                    else:
+                        df_modal_visivel = df_modal
+
+                    cores_modal = {
+                        "Valor Aereo": "#1CBE4F",
+                        "Valor Maritimo": "#042373",
+                        "Valor Terrestre": "#E4572E",
+                    }
+                    nomes_modal = {
+                        "Valor Aereo": "Aéreo",
+                        "Valor Maritimo": "Marítimo",
+                        "Valor Terrestre": "Terrestre",
+                    }
+
+                    fig_modal = go.Figure()
+                    for col in ["Valor Aereo", "Valor Maritimo", "Valor Terrestre"]:
+                        fig_modal.add_trace(
+                            go.Scatter(
+                                x=df_modal_visivel["_periodo_label"],
+                                y=df_modal_visivel[col],
+                                mode="lines+markers",
+                                name=nomes_modal[col],
+                                line=dict(color=cores_modal[col]),
+                                hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                            )
+                        )
+                    fig_modal.update_layout(
+                        xaxis_title="Período",
+                        yaxis_title="Valor (USD)",
+                        plot_bgcolor="#DBF7FF",
+                        paper_bgcolor="white",
+                        height=500,
+                        legend_title="Modal",
+                        margin=dict(t=40, b=50, l=50, r=50),
+                    )
+                    fig_modal.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    fig_modal.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    st.plotly_chart(fig_modal, use_container_width=True, key=f"grafico_modal_{combo_id}")
 
             # ------------------------------------------------------------
             # Gráfico 5 -- volume total (valor absoluto) por país, barras
