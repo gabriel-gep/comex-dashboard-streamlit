@@ -1,7 +1,5 @@
 import streamlit as st
-
 st.set_page_config(page_title="Comex - Menu", page_icon="🌍", layout="wide")
-
 st.markdown(
     """
     <h1 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
@@ -10,17 +8,14 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
 st.write("")
 st.markdown(
     "<p style='text-align:center; font-size:18px;'>Selecione o país para explorar os dados de comércio exterior:</p>",
     unsafe_allow_html=True,
 )
 st.write("")
-
 FLAG_BR = "https://flagcdn.com/w40/br.png"
 FLAG_US = "https://flagcdn.com/w40/us.png"
-
 # CSS do card inteiro clicável (evita usar tags <h1>-<h6>, que o Streamlit
 # transforma automaticamente em títulos com ícone de âncora).
 st.markdown(
@@ -64,9 +59,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
 col1, col2 = st.columns(2)
-
 with col1:
     st.markdown(
         f"""
@@ -85,7 +78,6 @@ with col1:
         """,
         unsafe_allow_html=True,
     )
-
 with col2:
     st.markdown(
         f"""
@@ -95,8 +87,9 @@ with col2:
                     <img src="{FLAG_US}" width="28">Estados Unidos
                 </div>
                 <div class="comex-card-desc">
-                    Importações por código HTS, país de origem e ano
-                    (fonte oficial: USITC DataWeb).
+                    Importações por código HTS, país de origem, via de entrada
+                    e modal de transporte (fontes: USITC DataWeb e Census
+                    Bureau International Trade API).
                 </div>
             </div>
             <div class="comex-card-cta">Abrir painel dos EUA →</div>
@@ -104,7 +97,6 @@ with col2:
         """,
         unsafe_allow_html=True,
     )
-
 st.write("")
 st.caption(
     "Cada painel é independente: os filtros e dados de um país não afetam o outro."
