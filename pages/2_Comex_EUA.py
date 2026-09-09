@@ -1066,65 +1066,50 @@ if "df_eua_multi" in st.session_state:
                 hts_para_buscar = [hts_escolhido] if hts_escolhido else hts_codes
 
                 # Legenda de HTS exibido, embaixo da fonte -- mesmo padrão
-                # usado nos demais gráficos (legenda_unidade_hts), mas
-                # calculada aqui porque este gráfico sempre é Valor,
-                # independente da métrica ativa nos outros gráficos.
+                # usado nos demais gráficos (legenda_unidade_hts): só
+                # aparece quando um HTS específico foi escolhido (não o
+                # Total nem quando há só um HTS na consulta).
                 if hts_escolhido is not None:
                     hts_texto_modal = f"HTS exibido: {hts_labels.get(hts_escolhido, hts_escolhido)}"
-                else:
-                    hts_texto_modal = "HTS exibidos: " + "; ".join(
-                        hts_labels.get(h, h) for h in hts_para_buscar
+                    st.markdown(
+                        f"<p style='text-align:center; font-size:0.85rem; color:#666; margin:0 0 12px 0;'>"
+                        f"{hts_texto_modal}</p>",
+                        unsafe_allow_html=True,
                     )
-                st.markdown(
-                    f"<p style='text-align:center; font-size:0.85rem; color:#666; margin:0 0 12px 0;'>"
-                    f"{hts_texto_modal}</p>",
-                    unsafe_allow_html=True,
-                )
 
                 # Filtros exclusivos deste gráfico -- país e via de entrada,
-                # independentes dos filtros globais da barra lateral. Por
-                # padrão vêm todas as opções marcadas (equivale a "sem filtro").
+                # independentes dos filtros globais da barra lateral. Vazio
+                # (padrão) = sem filtro, mesmo comportamento dos filtros da
+                # barra lateral -- não vem pré-preenchido com tudo marcado.
                 col_fp, col_fv = st.columns(2)
                 with col_fp:
                     paises_modal_sel = st.multiselect(
-                        "Países considerados neste gráfico",
+                        "Países considerados neste gráfico (opcional — vazio = todos)",
                         options=sorted(COUNTRY_CODES.keys()),
-                        default=sorted(COUNTRY_CODES.keys()),
+                        default=[],
                         key=f"paises_modal_{combo_id}",
                     )
                 with col_fv:
                     vias_modal_sel = st.multiselect(
-                        "Vias de entrada consideradas neste gráfico",
+                        "Vias de entrada consideradas neste gráfico (opcional — vazio = todas)",
                         options=sorted(DISTRICT_CODES.keys()),
-                        default=sorted(DISTRICT_CODES.keys()),
+                        default=[],
                         key=f"vias_modal_{combo_id}",
                     )
 
-                if not paises_modal_sel or not vias_modal_sel:
-                    st.info("Selecione ao menos um país e uma via de entrada para exibir o gráfico.")
-                    df_census = None
-                else:
-                    # Se está tudo selecionado, equivale a "sem filtro" --
-                    # evita mandar uma lista gigante de códigos pra API à toa.
-                    country_codes_census = (
-                        [COUNTRY_CODES[c] for c in paises_modal_sel]
-                        if len(paises_modal_sel) < len(COUNTRY_CODES) else None
-                    )
-                    district_codes_census = (
-                        [DISTRICT_CODES[d] for d in vias_modal_sel]
-                        if len(vias_modal_sel) < len(DISTRICT_CODES) else None
-                    )
+                country_codes_census = [COUNTRY_CODES[c] for c in paises_modal_sel] or None
+                district_codes_census = [DISTRICT_CODES[d] for d in vias_modal_sel] or None
 
-                    with st.spinner("Consultando Census Bureau International Trade API..."):
-                        try:
-                            df_census = _fetch_census_modal_cached(
-                                tuple(hts_para_buscar), str(year_start), str(year_end), CENSUS_API_KEY,
-                                tuple(district_codes_census) if district_codes_census else None,
-                                tuple(country_codes_census) if country_codes_census else None,
-                            )
-                        except Exception as e:
-                            df_census = None
-                            st.error(f"Erro ao consultar a Census API: {e}")
+                with st.spinner("Consultando Census Bureau International Trade API..."):
+                    try:
+                        df_census = _fetch_census_modal_cached(
+                            tuple(hts_para_buscar), str(year_start), str(year_end), CENSUS_API_KEY,
+                            tuple(district_codes_census) if district_codes_census else None,
+                            tuple(country_codes_census) if country_codes_census else None,
+                        )
+                    except Exception as e:
+                        df_census = None
+                        st.error(f"Erro ao consultar a Census API: {e}")
 
                 if df_census is not None and df_census.empty:
                     st.info(
