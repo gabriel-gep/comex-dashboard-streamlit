@@ -1081,18 +1081,39 @@ if "df_eua_multi" in st.session_state:
                 # independentes dos filtros globais da barra lateral. Vazio
                 # (padrão) = sem filtro, mesmo comportamento dos filtros da
                 # barra lateral -- não vem pré-preenchido com tudo marcado.
+                # Opções restritas ao que já apareceu nos dados do DataWeb
+                # para esse(s) HTS (evita oferecer país/via sem nenhum
+                # comércio registrado, que sempre daria "sem dados" -- ou
+                # pior, deixaria a consulta lenta à toa na Census API, que
+                # é uma fonte diferente da base usada nos outros gráficos).
+                if country_col:
+                    paises_modal_opcoes = sorted(
+                        v for v in df_fonte_grafico[country_col].dropna().unique()
+                        if v in COUNTRY_CODES
+                    )
+                else:
+                    paises_modal_opcoes = sorted(COUNTRY_CODES.keys())
+
+                if via_col:
+                    vias_modal_opcoes = sorted(
+                        v for v in df_fonte_grafico[via_col].dropna().unique()
+                        if v in DISTRICT_CODES
+                    )
+                else:
+                    vias_modal_opcoes = sorted(DISTRICT_CODES.keys())
+
                 col_fp, col_fv = st.columns(2)
                 with col_fp:
                     paises_modal_sel = st.multiselect(
                         "Países considerados neste gráfico (opcional — vazio = todos)",
-                        options=sorted(COUNTRY_CODES.keys()),
+                        options=paises_modal_opcoes,
                         default=[],
                         key=f"paises_modal_{combo_id}",
                     )
                 with col_fv:
                     vias_modal_sel = st.multiselect(
                         "Vias de entrada consideradas neste gráfico (opcional — vazio = todas)",
-                        options=sorted(DISTRICT_CODES.keys()),
+                        options=vias_modal_opcoes,
                         default=[],
                         key=f"vias_modal_{combo_id}",
                     )
@@ -1109,7 +1130,21 @@ if "df_eua_multi" in st.session_state:
                         )
                     except Exception as e:
                         df_census = None
-                        st.error(f"Erro ao consultar a Census API: {e}")
+                        erro_txt = str(e).lower()
+                        if "timed out" in erro_txt or "timeout" in erro_txt:
+                            st.warning(
+                                "A Census API demorou demais para responder (timeout). "
+                                "Isso pode acontecer em consultas maiores (vários HTS "
+                                "ou muitos anos de uma vez). Tente reduzir o intervalo "
+                                "de anos ou tente novamente em instantes."
+                            )
+                        else:
+                            st.warning(
+                                "Não foi possível consultar a Census API agora. "
+                                "Tente novamente em instantes."
+                            )
+                        with st.expander("Detalhes técnicos do erro"):
+                            st.code(str(e))
 
                 if df_census is not None and df_census.empty:
                     st.info(
