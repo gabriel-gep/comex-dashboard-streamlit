@@ -1201,101 +1201,113 @@ if "df_eua_multi" in st.session_state:
                     }
                     colunas_valor = ["Valor Aereo", "Valor Maritimo", "Valor Terrestre"]
 
-                    # Ordena os modais pelo total no período visível -- só
-                    # define a ordem dos rótulos diretos no fim das linhas.
-                    totais_modal = {col: df_modal_visivel[col].sum() for col in colunas_valor}
-                    ordem_modal = sorted(totais_modal, key=totais_modal.get, reverse=True)
+                    # Modais zerados em todos os pontos visíveis não agregam
+                    # informação -- tira da linha, do rótulo e do tooltip.
+                    colunas_com_dado = [
+                        c for c in colunas_valor if df_modal_visivel[c].fillna(0).any()
+                    ]
 
-                    fig_modal = go.Figure()
-                    for col in ordem_modal:
+                    if not colunas_com_dado:
+                        st.info(
+                            "Todos os modais de transporte estão zerados no "
+                            "período/filtros selecionados."
+                        )
+                    else:
+                        # Ordena os modais pelo total no período visível -- só
+                        # define a ordem dos rótulos diretos no fim das linhas.
+                        totais_modal = {col: df_modal_visivel[col].sum() for col in colunas_com_dado}
+                        ordem_modal = sorted(totais_modal, key=totais_modal.get, reverse=True)
+
+                        fig_modal = go.Figure()
+                        for col in ordem_modal:
+                            fig_modal.add_trace(
+                                go.Scatter(
+                                    x=df_modal_visivel["_periodo_label"],
+                                    y=df_modal_visivel[col],
+                                    mode="lines+markers",
+                                    name=nomes_modal[col],
+                                    line=dict(color=cores_modal[col]),
+                                    showlegend=False,
+                                    hoverinfo="skip",  # o tooltip combinado é a trace invisível abaixo
+                                )
+                            )
+
+                        # Rótulos diretos no fim das linhas, à direita -- substituem
+                        # a legenda tradicional. Calculados à parte (não dentro do
+                        # loop acima) para poder afastar rótulos que ficariam
+                        # sobrepostos quando os valores finais são muito próximos.
+                        ultimo_x = df_modal_visivel["_periodo_label"].iloc[-1]
+                        ultimos_y = {col: df_modal_visivel[col].iloc[-1] for col in colunas_com_dado}
+
+                        y_max_eixo = max(df_modal_visivel[c].max() for c in colunas_com_dado)
+                        gap_minimo = y_max_eixo * 0.07 if y_max_eixo > 0 else 1
+
+                        # Ajusta de baixo para cima, garantindo distância mínima
+                        # entre rótulos consecutivos (sem alterar a posição da
+                        # própria linha -- só a do texto).
+                        ordenado_por_y = sorted(ultimos_y.items(), key=lambda par: par[1])
+                        y_ajustado = {}
+                        y_anterior = None
+                        for col, y in ordenado_por_y:
+                            if y_anterior is not None and y - y_anterior < gap_minimo:
+                                y = y_anterior + gap_minimo
+                            y_ajustado[col] = y
+                            y_anterior = y
+
+                        for col in colunas_com_dado:
+                            fig_modal.add_annotation(
+                                x=ultimo_x, y=y_ajustado[col],
+                                text=nomes_modal[col],
+                                showarrow=False,
+                                xanchor="left",
+                                xshift=10,
+                                font=dict(color=cores_modal[col], size=13),
+                            )
+
+                        # Trace invisível com o tooltip combinado dos modais
+                        # exibidos, ordenado do maior para o menor -- por
+                        # CADA ponto (mês/ano), não pela ordem geral do período.
+                        hover_textos = []
+                        y_topo = []
+                        for _, row in df_modal_visivel.iterrows():
+                            pares = sorted(
+                                ((nomes_modal[c], row[c]) for c in colunas_com_dado),
+                                key=lambda par: par[1],
+                                reverse=True,
+                            )
+                            texto = f"<b>{row['_periodo_label']}</b><br>" + "<br>".join(
+                                f"{nome}: {valor:,.0f}" for nome, valor in pares
+                            )
+                            hover_textos.append(texto)
+                            y_topo.append(max(row[c] for c in colunas_com_dado))
+
                         fig_modal.add_trace(
                             go.Scatter(
                                 x=df_modal_visivel["_periodo_label"],
-                                y=df_modal_visivel[col],
-                                mode="lines+markers",
-                                name=nomes_modal[col],
-                                line=dict(color=cores_modal[col]),
+                                y=y_topo,
+                                mode="markers",
+                                marker=dict(opacity=0, size=20),
+                                hoverinfo="text",
+                                hovertext=hover_textos,
                                 showlegend=False,
-                                hoverinfo="skip",  # o tooltip combinado é a trace invisível abaixo
                             )
                         )
 
-                    # Rótulos diretos no fim das linhas, à direita -- substituem
-                    # a legenda tradicional. Calculados à parte (não dentro do
-                    # loop acima) para poder afastar rótulos que ficariam
-                    # sobrepostos quando os valores finais são muito próximos.
-                    ultimo_x = df_modal_visivel["_periodo_label"].iloc[-1]
-                    ultimos_y = {col: df_modal_visivel[col].iloc[-1] for col in colunas_valor}
-
-                    y_max_eixo = max(df_modal_visivel[c].max() for c in colunas_valor)
-                    gap_minimo = y_max_eixo * 0.07 if y_max_eixo > 0 else 1
-
-                    # Ajusta de baixo para cima, garantindo distância mínima
-                    # entre rótulos consecutivos (sem alterar a posição da
-                    # própria linha -- só a do texto).
-                    ordenado_por_y = sorted(ultimos_y.items(), key=lambda par: par[1])
-                    y_ajustado = {}
-                    y_anterior = None
-                    for col, y in ordenado_por_y:
-                        if y_anterior is not None and y - y_anterior < gap_minimo:
-                            y = y_anterior + gap_minimo
-                        y_ajustado[col] = y
-                        y_anterior = y
-
-                    for col in colunas_valor:
-                        fig_modal.add_annotation(
-                            x=ultimo_x, y=y_ajustado[col],
-                            text=nomes_modal[col],
-                            showarrow=False,
-                            xanchor="left",
-                            xshift=10,
-                            font=dict(color=cores_modal[col], size=13),
-                        )
-
-                    # Trace invisível com o tooltip combinado dos 3 modais,
-                    # ordenado do maior para o menor -- especificamente para
-                    # CADA ponto (mês/ano), não pela ordem geral do período.
-                    hover_textos = []
-                    y_topo = []
-                    for _, row in df_modal_visivel.iterrows():
-                        pares = sorted(
-                            ((nomes_modal[c], row[c]) for c in colunas_valor),
-                            key=lambda par: par[1],
-                            reverse=True,
-                        )
-                        texto = f"<b>{row['_periodo_label']}</b><br>" + "<br>".join(
-                            f"{nome}: {valor:,.0f}" for nome, valor in pares
-                        )
-                        hover_textos.append(texto)
-                        y_topo.append(max(row[c] for c in colunas_valor))
-
-                    fig_modal.add_trace(
-                        go.Scatter(
-                            x=df_modal_visivel["_periodo_label"],
-                            y=y_topo,
-                            mode="markers",
-                            marker=dict(opacity=0, size=20),
-                            hoverinfo="text",
-                            hovertext=hover_textos,
+                        fig_modal.update_layout(
+                            xaxis_title="Período",
+                            yaxis_title="Valor (USD)",
+                            plot_bgcolor="#DBF7FF",
+                            paper_bgcolor="white",
+                            height=500,
                             showlegend=False,
+                            hovermode="x",  # dispara o tooltip em qualquer ponto da
+                                            # coluna (independente da distância vertical
+                                            # até o marcador invisível)
+                            margin=dict(t=40, b=50, l=50, r=110),
                         )
-                    )
-
-                    fig_modal.update_layout(
-                        xaxis_title="Período",
-                        yaxis_title="Valor (USD)",
-                        plot_bgcolor="#DBF7FF",
-                        paper_bgcolor="white",
-                        height=500,
-                        showlegend=False,
-                        hovermode="x",  # dispara o tooltip em qualquer ponto da
-                                        # coluna (independente da distância vertical
-                                        # até o marcador invisível)
-                        margin=dict(t=40, b=50, l=50, r=110),
-                    )
-                    fig_modal.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                    fig_modal.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                    st.plotly_chart(fig_modal, use_container_width=True, key=f"grafico_modal_{combo_id}")
+                        fig_modal.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                        fig_modal.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                        st.plotly_chart(fig_modal, use_container_width=True, key=f"grafico_modal_{combo_id}")
 
             # ------------------------------------------------------------
             # Gráfico 5 -- volume total (valor absoluto) por país, barras
