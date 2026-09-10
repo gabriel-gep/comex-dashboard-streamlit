@@ -8,8 +8,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 import plotly.colors as pcolors
+from statsforecast import StatsForecast
+from statsforecast.models import ETS
 
 from dataweb_client import (
     build_import_query,
@@ -31,6 +34,111 @@ TABLE_LABEL_PT = {
 
 def label_pt(label_original: str) -> str:
     return TABLE_LABEL_PT.get(label_original, label_original)
+
+# --------------------------------------------------------------------
+# Projeção (ETS) -- portada da mesma lógica usada no dash Brasil.
+# --------------------------------------------------------------------
+MES_NUM_PT = {
+    "Jan": 1, "Fev": 2, "Mar": 3, "Abr": 4, "Mai": 5, "Jun": 6,
+    "Jul": 7, "Ago": 8, "Set": 9, "Out": 10, "Nov": 11, "Dez": 12,
+}
+MES_ABBR_PT_INV = {v: k for k, v in MES_NUM_PT.items()}
+
+def periodo_label_para_data(label):
+    """Converte 'Jan/2023' -> Timestamp(2023-01-01)."""
+    mes_abbr, ano = label.split("/")
+    return pd.Timestamp(year=int(ano), month=MES_NUM_PT[mes_abbr], day=1)
+
+def data_para_periodo_label(data):
+    """Converte Timestamp -> 'Jan/2023'."""
+    return f"{MES_ABBR_PT_INV[data.month]}/{data.year}"
+
+def forecast_ets_mnm_robust(df, date_col, h=6, constant=1e-6, max_retries=2):
+    """
+    Mesma lógica usada no dash Brasil: ETS (MNM, sazonalidade 12), com
+    compressão suave para valores projetados que ultrapassam o máximo
+    histórico da série. Roda uma série por coluna (exceto date_col).
+    """
+    ts_columns = [col for col in df.columns if col != date_col]
+    all_forecasts = []
+
+    for col in ts_columns:
+        for attempt in range(max_retries + 1):
+            try:
+                temp_df = df[[date_col, col]].copy()
+                temp_df = temp_df.dropna()
+
+                if len(temp_df) < 2:
+                    break
+
+                temp_df = temp_df.rename(columns={date_col: "ds", col: "y"})
+                temp_df["unique_id"] = col
+                temp_df["ds"] = pd.to_datetime(temp_df["ds"])
+
+                max_historico = temp_df["y"].max()
+                temp_df["y"] = temp_df["y"] + constant
+
+                last_date_series = temp_df["ds"].max()
+
+                model = ETS(model="MNM", season_length=12)
+                sf = StatsForecast(models=[model], freq="ME", n_jobs=1)
+                forecast = sf.forecast(df=temp_df, h=h)
+
+                forecast_values = forecast["ETS"].values - constant
+
+                forecast_ajustado = []
+                for valor in forecast_values:
+                    if max_historico > 0 and valor > max_historico:
+                        valor_ajustado = max_historico + (max_historico * 0.1) * (
+                            1 - np.exp(-(valor - max_historico) / (max_historico * 0.2))
+                        )
+                        forecast_ajustado.append(valor_ajustado)
+                    else:
+                        forecast_ajustado.append(valor)
+
+                forecast_dates = pd.date_range(
+                    start=last_date_series + pd.DateOffset(months=1), periods=h, freq="ME"
+                )
+
+                forecast_series = pd.DataFrame({
+                    "ds": forecast_dates, col: forecast_ajustado, "unique_id": col
+                })
+                all_forecasts.append(forecast_series)
+                break
+            except Exception:
+                if attempt == max_retries:
+                    try:
+                        temp_df = df[[date_col, col]].copy().dropna()
+                        if len(temp_df) > 0:
+                            last_date_series = pd.to_datetime(temp_df[date_col].max())
+                            forecast_dates = pd.date_range(
+                                start=last_date_series + pd.DateOffset(months=1), periods=h, freq="ME"
+                            )
+                            forecast_series = pd.DataFrame({
+                                "ds": forecast_dates, col: np.full(h, np.nan), "unique_id": col
+                            })
+                            all_forecasts.append(forecast_series)
+                    except Exception:
+                        pass
+                continue
+
+    if not all_forecasts:
+        return pd.DataFrame()
+
+    all_dates = set()
+    for f in all_forecasts:
+        all_dates.update(f["ds"].tolist())
+    all_dates = sorted(list(all_dates))
+    consolidated_df = pd.DataFrame({"ds": all_dates})
+
+    for forecast_df in all_forecasts:
+        col_name = forecast_df["unique_id"].iloc[0]
+        series_forecast = forecast_df[["ds", col_name]].copy()
+        consolidated_df = consolidated_df.merge(series_forecast, on="ds", how="left")
+
+    consolidated_df = consolidated_df.set_index("ds")
+    return consolidated_df
+
 
 st.set_page_config(page_title="Comex EUA", page_icon="🌍", layout="wide")
 
@@ -89,8 +197,8 @@ ano_atual = dt.datetime.now().year
 year_start, year_end = st.sidebar.slider(
     "Intervalo de anos",
     min_value=2010,
-    max_value=ano_atual - 1,
-    value=(2020, ano_atual - 1),
+    max_value=ano_atual,
+    value=(2020, ano_atual),
 )
 years = [str(y) for y in range(year_start, year_end + 1)]
 
@@ -200,6 +308,21 @@ if buscar:
                     ]
                     df_i[periodo_cols_flat] = df_i[periodo_cols_flat].fillna(0)
 
+                    # Remove meses que ainda NÃO aconteceram (futuros em
+                    # relação a hoje) -- sem isso, eles apareceriam como
+                    # "0" indistinguível de "sem comércio", contaminando
+                    # tanto a tabela quanto o modelo de projeção. Meses já
+                    # ENCERRADOS continuam normalmente, mesmo que estejam
+                    # no "ano corrente".
+                    hoje = dt.date.today()
+                    ultimo_mes_completo = hoje.replace(day=1) - dt.timedelta(days=1)
+                    colunas_futuras = [
+                        c for c in periodo_cols_flat
+                        if periodo_label_para_data(c).date() > ultimo_mes_completo
+                    ]
+                    if colunas_futuras:
+                        df_i = df_i.drop(columns=colunas_futuras)
+
                 dfs_por_medida[label] = df_i
         except Exception as e:
             st.error(f"Erro ao processar a resposta da API: {e}")
@@ -229,6 +352,17 @@ MES_ABBR_PT = {
     "01": "Jan", "02": "Fev", "03": "Mar", "04": "Abr", "05": "Mai", "06": "Jun",
     "07": "Jul", "08": "Ago", "09": "Set", "10": "Out", "11": "Nov", "12": "Dez",
 }
+
+# --------------------------------------------------------------------
+# Cache da projeção (ETS) -- evita reprocessar o modelo a cada rerun do
+# Streamlit; só recalcula se as vias selecionadas ou os dados mudarem.
+# --------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def _forecast_cached(df_wide_json, h=6):
+    df_wide = pd.read_json(df_wide_json, orient="split")
+    df_wide["data"] = pd.to_datetime(df_wide["data"])
+    return forecast_ets_mnm_robust(df_wide, date_col="data", h=h)
+
 
 # --------------------------------------------------------------------
 # Exibição
@@ -540,15 +674,32 @@ if "df_eua_multi" in st.session_state:
                     unsafe_allow_html=True,
                 )
 
+        titulo_grafico1 = (
+            f"Volume Importado em {metrica_grafico}: Realizado vs Projetado"
+            if monthly else
+            f"Volume Importado em {metrica_grafico}: Realizado"
+        )
         st.markdown(
             f"""
             <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                Volume Importado em {metrica_grafico}: Realizado vs Projetado
+                {titulo_grafico1}
             </h2>
             """,
             unsafe_allow_html=True,
         )
         legenda_unidade_hts()
+        if not monthly:
+            st.info(
+                "Projeção disponível apenas no modo **Mensal** -- troque o "
+                "período no filtro para ver a projeção (barras verdes) além "
+                "do realizado."
+            )
+            if str(ano_atual) in years:
+                st.caption(
+                    f"⚠️ O ano {ano_atual} está incluído no intervalo selecionado "
+                    "e ainda não terminou -- o total desse ano reflete só os "
+                    "meses já encerrados, não o ano completo."
+                )
 
         if not periodo_cols:
             st.info("Sem colunas de período disponíveis para exibir gráficos.")
@@ -613,6 +764,39 @@ if "df_eua_multi" in st.session_state:
                 if not vias_selecionadas:
                     st.info("Selecione ao menos uma via de entrada para exibir os gráficos.")
                 else:
+                    # Projeção só faz sentido no Mensal, e só quando a
+                    # janela visível vai até o último período real
+                    # (senão o usuário está olhando um recorte histórico,
+                    # e mostrar "Projetado" ali confundiria mais que ajudaria).
+                    mostrar_projecao = (
+                        monthly
+                        and periodo_visivel
+                        and periodo_visivel[-1] == periodo_cols[-1]
+                        and len(periodo_cols) >= 6  # mínimo de histórico para o modelo
+                    )
+
+                    forecast_por_via = {}
+                    if mostrar_projecao:
+                        try:
+                            df_wide_forecast = pd.DataFrame({
+                                "data": [periodo_label_para_data(p) for p in periodo_cols]
+                            })
+                            for via in vias_selecionadas:
+                                row = df_via[df_via[via_col] == via].iloc[0]
+                                df_wide_forecast[via] = [row[c] for c in periodo_cols]
+
+                            forecast_df = _forecast_cached(
+                                df_wide_forecast.to_json(orient="split", date_format="iso"),
+                                h=6,
+                            )
+                            for via in vias_selecionadas:
+                                if via in forecast_df.columns:
+                                    serie = forecast_df[via].dropna()
+                                    if not serie.empty:
+                                        forecast_por_via[via] = serie
+                        except Exception:
+                            mostrar_projecao = False
+
                     cols_por_linha = 2
                     for i in range(0, len(vias_selecionadas), cols_por_linha):
                         cols = st.columns(cols_por_linha)
@@ -622,23 +806,25 @@ if "df_eua_multi" in st.session_state:
                                 valores = [row[c] for c in periodo_visivel]
 
                                 fig = go.Figure()
+                                fig.add_trace(
+                                    go.Bar(
+                                        x=periodo_visivel, y=valores,
+                                        name="Realizado", marker_color="blue",
+                                        hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                                    )
+                                )
                                 if monthly:
-                                    fig.add_trace(
-                                        go.Scatter(
-                                            x=periodo_visivel, y=valores,
-                                            mode="lines+markers", name="Realizado",
-                                            line=dict(color="blue"),
-                                            hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                                    serie_proj = forecast_por_via.get(via)
+                                    if serie_proj is not None and len(serie_proj) > 0:
+                                        periodos_proj = [data_para_periodo_label(d) for d in serie_proj.index]
+                                        valores_proj = serie_proj.tolist()
+                                        fig.add_trace(
+                                            go.Bar(
+                                                x=periodos_proj, y=valores_proj,
+                                                name="Projetado", marker_color="green",
+                                                hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                                            )
                                         )
-                                    )
-                                else:
-                                    fig.add_trace(
-                                        go.Bar(
-                                            x=periodo_visivel, y=valores,
-                                            name="Realizado", marker_color="blue",
-                                            hovertemplate="Ano: %{x}<br>%{y:,.0f}<extra></extra>",
-                                        )
-                                    )
                                 fig.update_layout(
                                     title=str(via),
                                     height=320,
