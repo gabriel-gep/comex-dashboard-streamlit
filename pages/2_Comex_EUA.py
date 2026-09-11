@@ -907,7 +907,14 @@ if "df_eua_multi" in st.session_state:
                         row_check = df_via[df_via[via_col] == via].iloc[0]
                         valores_check = [row_check[c] for c in periodo_visivel]
                         tem_dado_real = any((v not in (0, None) and not pd.isna(v)) for v in valores_check)
-                        tem_projecao_check = via in forecast_por_via and len(forecast_por_via[via]) > 0
+                        # Não basta a série existir -- precisa ter algum
+                        # valor de fato diferente de zero (senão uma
+                        # projeção "toda zero" passava no filtro igual).
+                        tem_projecao_check = (
+                            via in forecast_por_via
+                            and len(forecast_por_via[via]) > 0
+                            and forecast_por_via[via].abs().max() > 1
+                        )
                         if tem_dado_real or (monthly and tem_projecao_check):
                             vias_com_conteudo.append(via)
 
