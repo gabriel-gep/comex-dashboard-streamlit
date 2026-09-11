@@ -322,6 +322,31 @@ if buscar:
                     ]
                     if colunas_futuras:
                         df_i = df_i.drop(columns=colunas_futuras)
+                        periodo_cols_flat = [c for c in periodo_cols_flat if c not in colunas_futuras]
+
+                    # Remove meses recém-encerrados que ainda NÃO têm dado
+                    # publicado na fonte (comum: a USITC/Census têm um
+                    # atraso de publicação de 1-3 meses). Detecta pela
+                    # cauda: se os últimos meses (adjacentes ao mais
+                    # recente) estão com total zerado logo depois de meses
+                    # com dado real, trata como "não publicado ainda" (não
+                    # "sem comércio real") e deixa a projeção cobrir esses
+                    # meses também. Limitado a 3 meses de cauda por
+                    # segurança (não mexe em zeros genuínos mais antigos).
+                    periodo_cols_flat_ordenado = sorted(periodo_cols_flat, key=periodo_label_para_data)
+                    MAX_MESES_NAO_PUBLICADOS = 3
+                    removidos = 0
+                    while (
+                        len(periodo_cols_flat_ordenado) > 1
+                        and removidos < MAX_MESES_NAO_PUBLICADOS
+                    ):
+                        ultima_col = periodo_cols_flat_ordenado[-1]
+                        if df_i[ultima_col].sum() == 0:
+                            df_i = df_i.drop(columns=[ultima_col])
+                            periodo_cols_flat_ordenado.pop()
+                            removidos += 1
+                        else:
+                            break
 
                 dfs_por_medida[label] = df_i
         except Exception as e:
@@ -778,12 +803,25 @@ if "df_eua_multi" in st.session_state:
                     forecast_por_via = {}
                     if mostrar_projecao:
                         try:
+                            # Janela de treino FIXA (últimos 60 meses = 5
+                            # anos), independente de quantos anos o filtro
+                            # da barra lateral está trazendo -- garante que
+                            # a mesma previsão futura saia sempre igual,
+                            # desde que o filtro cubra pelo menos essa
+                            # janela (senão usa o que tiver disponível).
+                            JANELA_MESES_FORECAST = 60
+                            periodo_cols_forecast = (
+                                periodo_cols[-JANELA_MESES_FORECAST:]
+                                if len(periodo_cols) > JANELA_MESES_FORECAST
+                                else periodo_cols
+                            )
+
                             df_wide_forecast = pd.DataFrame({
-                                "data": [periodo_label_para_data(p) for p in periodo_cols]
+                                "data": [periodo_label_para_data(p) for p in periodo_cols_forecast]
                             })
                             for via in vias_selecionadas:
                                 row = df_via[df_via[via_col] == via].iloc[0]
-                                df_wide_forecast[via] = [row[c] for c in periodo_cols]
+                                df_wide_forecast[via] = [row[c] for c in periodo_cols_forecast]
 
                             forecast_df = _forecast_cached(
                                 df_wide_forecast.to_json(orient="split", date_format="iso"),
