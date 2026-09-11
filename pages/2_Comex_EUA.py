@@ -254,10 +254,22 @@ if buscar:
 
     monthly = periodo_tipo == "Mensal"
 
+    # No modo Mensal, sempre consulta pelo menos alguns anos extras pra
+    # trás -- garante que a projeção (janela fixa de 60 meses) sempre
+    # tenha histórico suficiente, mesmo que o usuário peça um período
+    # curto pra VISUALIZAR. Esses meses extras não aparecem na tabela
+    # nem nos outros gráficos -- só alimentam o modelo de projeção.
+    ANOS_MINIMOS_PARA_QUERY = 6  # ~72 meses de folga (> 60 meses exigidos)
+    if monthly:
+        year_start_query = min(year_start, ano_atual - ANOS_MINIMOS_PARA_QUERY)
+    else:
+        year_start_query = year_start
+    years_query = [str(y) for y in range(year_start_query, year_end + 1)]
+
     with st.spinner("Consultando USITC DataWeb..."):
         query = build_import_query(
             hts_codes=hts_codes,
-            years=years,
+            years=years_query,
             countries=countries,
             aggregate_commodities=aggregate_commodities,
             aggregate_countries=aggregate_countries,
@@ -273,6 +285,7 @@ if buscar:
             st.stop()
 
         dfs_por_medida = {}
+        dfs_por_medida_full = {}  # versão com o histórico extra, só para a projeção
         try:
             for i in range(num_tables(response)):
                 label = get_table_label(response, measure_num=i)
@@ -348,12 +361,30 @@ if buscar:
                         else:
                             break
 
+                    # Guarda a versão COMPLETA (com os anos extras de
+                    # "colchão") só para a projeção -- não é isso que
+                    # aparece na tabela nem nos outros gráficos.
+                    dfs_por_medida_full[label] = df_i.copy()
+
+                    # Recorta para o que o usuário efetivamente pediu no
+                    # filtro -- é só isso que vira tabela/gráficos normais.
+                    anos_pedidos = set(years)
+                    colunas_fora_do_pedido = [
+                        c for c in periodo_cols_flat_ordenado
+                        if periodo_label_para_data(c).strftime("%Y") not in anos_pedidos
+                    ]
+                    if colunas_fora_do_pedido:
+                        df_i = df_i.drop(columns=colunas_fora_do_pedido)
+                else:
+                    dfs_por_medida_full[label] = df_i  # anual não estende nada
+
                 dfs_por_medida[label] = df_i
         except Exception as e:
             st.error(f"Erro ao processar a resposta da API: {e}")
             st.stop()
 
     st.session_state["df_eua_multi"] = dfs_por_medida
+    st.session_state["df_eua_multi_full"] = dfs_por_medida_full
     st.session_state["df_eua_monthly"] = monthly
     st.session_state["df_eua_years"] = years
 
@@ -394,6 +425,7 @@ def _forecast_cached(df_wide_json, h=6):
 # --------------------------------------------------------------------
 if "df_eua_multi" in st.session_state:
     dfs_por_medida = st.session_state["df_eua_multi"]
+    dfs_por_medida_full = st.session_state.get("df_eua_multi_full", {})
     monthly = st.session_state.get("df_eua_monthly", False)
     years = st.session_state.get("df_eua_years", [])
 
@@ -803,25 +835,56 @@ if "df_eua_multi" in st.session_state:
                     forecast_por_via = {}
                     if mostrar_projecao:
                         try:
-                            # Janela de treino FIXA (últimos 60 meses = 5
-                            # anos), independente de quantos anos o filtro
-                            # da barra lateral está trazendo -- garante que
-                            # a mesma previsão futura saia sempre igual,
-                            # desde que o filtro cubra pelo menos essa
-                            # janela (senão usa o que tiver disponível).
+                            # Usa a versão COMPLETA (com o "colchão" de anos
+                            # extras buscado na consulta) para montar a
+                            # janela de treino -- garante ~72 meses
+                            # disponíveis, sempre folgado acima dos 60
+                            # exigidos, independente do que o usuário
+                            # escolheu no filtro "Intervalo de anos" (que só
+                            # controla o que é EXIBIDO).
+                            df_fonte_full = dfs_por_medida_full.get(chave_medida)
+                            df_fonte_grafico_full = df_fonte_full
+                            if df_fonte_full is not None and hts_escolhido is not None and hts_col:
+                                df_fonte_grafico_full = df_fonte_full[df_fonte_full[hts_col] == hts_escolhido]
+
                             JANELA_MESES_FORECAST = 60
+                            if df_fonte_grafico_full is not None:
+                                periodo_cols_full = periodo_cols_de(df_fonte_grafico_full)
+                                df_via_full = (
+                                    df_fonte_grafico_full.groupby(via_col, as_index=False)[periodo_cols_full]
+                                    .sum(min_count=1)
+                                )
+                            else:
+                                # fallback (não deveria acontecer) -- usa a
+                                # versão visível mesmo, com o aviso de sempre.
+                                periodo_cols_full = periodo_cols
+                                df_via_full = df_via
+
                             periodo_cols_forecast = (
-                                periodo_cols[-JANELA_MESES_FORECAST:]
-                                if len(periodo_cols) > JANELA_MESES_FORECAST
-                                else periodo_cols
+                                periodo_cols_full[-JANELA_MESES_FORECAST:]
+                                if len(periodo_cols_full) > JANELA_MESES_FORECAST
+                                else periodo_cols_full
                             )
+
+                            if len(periodo_cols_full) < JANELA_MESES_FORECAST:
+                                st.info(
+                                    f"Esta consulta tem só {len(periodo_cols_full)} meses de "
+                                    f"histórico (ideal: {JANELA_MESES_FORECAST}, ~5 anos). "
+                                    "A projeção usa todo o histórico disponível, mas pode "
+                                    "sair diferente de uma consulta com mais anos no filtro "
+                                    "-- amplie o **Intervalo de anos** na barra lateral para "
+                                    "obter uma previsão consistente entre diferentes consultas."
+                                )
 
                             df_wide_forecast = pd.DataFrame({
                                 "data": [periodo_label_para_data(p) for p in periodo_cols_forecast]
                             })
                             for via in vias_selecionadas:
-                                row = df_via[df_via[via_col] == via].iloc[0]
-                                df_wide_forecast[via] = [row[c] for c in periodo_cols_forecast]
+                                linhas_via = df_via_full[df_via_full[via_col] == via]
+                                if linhas_via.empty:
+                                    continue
+                                row = linhas_via.iloc[0]
+                                df_wide_forecast[via] = [row.get(c, 0) for c in periodo_cols_forecast]
 
                             forecast_df = _forecast_cached(
                                 df_wide_forecast.to_json(orient="split", date_format="iso"),
