@@ -898,10 +898,29 @@ if "df_eua_multi" in st.session_state:
                         except Exception:
                             mostrar_projecao = False
 
+                    # Vias sem NENHUM dado no período visível e sem
+                    # projeção (histórico insuficiente/esparso para o
+                    # modelo) não geram gráfico vazio -- são filtradas
+                    # antes de montar a grade, pra não sobrar espaço em branco.
+                    vias_com_conteudo = []
+                    for via in vias_selecionadas:
+                        row_check = df_via[df_via[via_col] == via].iloc[0]
+                        valores_check = [row_check[c] for c in periodo_visivel]
+                        tem_dado_real = any((v not in (0, None) and not pd.isna(v)) for v in valores_check)
+                        tem_projecao_check = via in forecast_por_via and len(forecast_por_via[via]) > 0
+                        if tem_dado_real or (monthly and tem_projecao_check):
+                            vias_com_conteudo.append(via)
+
+                    if not vias_com_conteudo:
+                        st.info(
+                            "Nenhuma das vias de entrada selecionadas tem dado "
+                            "(real ou projetado) no período visível."
+                        )
+
                     cols_por_linha = 2
-                    for i in range(0, len(vias_selecionadas), cols_por_linha):
+                    for i in range(0, len(vias_com_conteudo), cols_por_linha):
                         cols = st.columns(cols_por_linha)
-                        for j, via in enumerate(vias_selecionadas[i:i + cols_por_linha]):
+                        for j, via in enumerate(vias_com_conteudo[i:i + cols_por_linha]):
                             with cols[j]:
                                 row = df_via[df_via[via_col] == via].iloc[0]
                                 valores = [row[c] for c in periodo_visivel]
