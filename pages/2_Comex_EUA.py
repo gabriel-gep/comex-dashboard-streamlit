@@ -793,7 +793,11 @@ if "df_eua_multi" in st.session_state:
                 df_via["_total"] = df_via[periodo_cols].sum(axis=1, skipna=True)
                 df_via = df_via.sort_values("_total", ascending=False)
                 todas_vias = df_via[via_col].tolist()
-                top5_default = sorted(todas_vias[:5])
+                # Top 5 padrão só entre vias com dado de verdade no período
+                # -- sem isso, uma via zerada podia "completar a lista" só
+                # porque não havia 5 vias com movimento suficiente.
+                vias_com_total_real = df_via[df_via["_total"] > 0][via_col].tolist()
+                top5_default = sorted(vias_com_total_real[:5])
                 todas_vias_alfa = sorted(todas_vias)
 
                 ms_key = f"vias_grafico_multiselect_{combo_id}"
