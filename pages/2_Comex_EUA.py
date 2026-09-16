@@ -630,6 +630,15 @@ if "df_eua_multi" in st.session_state:
 
     if df_fonte is not None:
         periodo_cols = periodo_cols_de(df_fonte)
+
+        # No Anual, se o ano corrente estiver na lista mas ainda vier
+        # zerado/vazio (o total anual "fechado" ainda não foi publicado
+        # pela fonte, mesmo já havendo dado mensal parcial), tira ele da
+        # exibição -- uma barra vazia confunde mais do que ajuda.
+        if not monthly and str(ano_atual) in periodo_cols:
+            if df_fonte[str(ano_atual)].sum() == 0:
+                periodo_cols = [c for c in periodo_cols if c != str(ano_atual)]
+
         label_cols = [c for c in df_fonte.columns if c not in periodo_cols]
 
         # Detecta a coluna de HTS (comparando com os códigos que o
@@ -746,17 +755,19 @@ if "df_eua_multi" in st.session_state:
         )
         legenda_unidade_hts()
         if not monthly:
-            st.info(
+            texto_aviso_anual = (
                 "Projeção disponível apenas no modo **Mensal** -- troque o "
                 "período no filtro para ver a projeção (barras verdes) além "
                 "do realizado."
             )
             if str(ano_atual) in years:
-                st.caption(
-                    f"⚠️ O ano {ano_atual} está incluído no intervalo selecionado "
-                    "e ainda não terminou -- o total desse ano reflete só os "
-                    "meses já encerrados, não o ano completo."
+                texto_aviso_anual += (
+                    f"  \n⚠️ O ano {ano_atual} está incluído no intervalo "
+                    "selecionado e ainda não terminou -- como o total anual "
+                    "completo ainda não está disponível na fonte, esse ano "
+                    "não aparece nos gráficos abaixo até fechar."
                 )
+            st.info(texto_aviso_anual)
 
         if not periodo_cols:
             st.info("Sem colunas de período disponíveis para exibir gráficos.")
