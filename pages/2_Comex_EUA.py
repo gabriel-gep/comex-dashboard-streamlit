@@ -535,7 +535,9 @@ if "df_eua_multi" in st.session_state:
         return pd.DataFrame(linhas)
 
     def preparar_df_exibicao(df, medida_label):
-        """Formato longo (uma linha por período): Data, HTS, País, Via de
+        """Formato longo (uma linha por período), granularidade HTS + Via
+        de Entrada (sem quebra por país -- fica consistente com a
+        granularidade das linhas Projetado). Colunas: Data, HTS, Via de
         Entrada, Descrição, [Unidade de Medida], Valor (USD)/Volume,
         [Tipo]. Reutilizada tanto pela tabela em tela quanto pelos
         exports (Excel)."""
@@ -543,35 +545,93 @@ if "df_eua_multi" in st.session_state:
         eh_medida_valor = "Quantity" not in medida_label
         nome_valor = "Valor (USD)" if eh_medida_valor else "Volume"
 
-        df_exibicao = df.copy()
-
-        if "Quantity Description" in df_exibicao.columns:
-            if eh_medida_valor:
-                df_exibicao = df_exibicao.drop(columns=["Quantity Description"])
-            else:
-                df_exibicao["Quantity Description"] = (
-                    df_exibicao["Quantity Description"]
-                    .astype(str)
-                    .str.replace("Value for: ", "", regex=False)
-                )
-                df_exibicao = df_exibicao.rename(
-                    columns={"Quantity Description": "Unidade de Medida"}
-                )
-
         if not periodo_cols:
-            return df_exibicao, periodo_cols
+            return df.copy(), periodo_cols
 
-        id_vars = [c for c in df_exibicao.columns if c not in periodo_cols]
-        df_longo = df_exibicao.melt(
+        # Remove colunas de período que ficaram de fora de periodo_cols
+        # (ex: ano corrente ainda vazio) -- sem isso, elas "vazam" como
+        # coluna solta ao entrar em id_vars do melt lá embaixo.
+        colunas_periodo_completas = (
+            [c for c in df.columns if re.match(r"^[A-Za-zçã]{3}/\d{4}$", str(c))]
+            if monthly else [c for c in years if c in df.columns]
+        )
+        colunas_a_descartar = [c for c in colunas_periodo_completas if c not in periodo_cols]
+        df_base = df.drop(columns=colunas_a_descartar, errors="ignore") if colunas_a_descartar else df
+
+        label_cols = [c for c in df_base.columns if c not in periodo_cols]
+
+        hts_col = None
+        for c in label_cols:
+            valores = set(str(v) for v in df_base[c].dropna().unique())
+            if valores and valores.issubset(set(hts_codes)):
+                hts_col = c
+                break
+
+        via_col_local = None
+        for c in label_cols:
+            valores = df_base[c].dropna().astype(str)
+            if len(valores) and valores.isin(DISTRICT_CODES.keys()).mean() >= 0.5:
+                via_col_local = c
+                break
+
+        desc_col = None
+        if hts_col:
+            if "Description" in df_base.columns:
+                desc_col = "Description"
+            else:
+                candidatos = [c for c in label_cols if c not in (hts_col, "Quantity Description")]
+                candidatos = [
+                    c for c in candidatos
+                    if df_base[c].dropna().astype(str).isin(COUNTRY_CODES.keys()).mean() < 0.5
+                    and df_base[c].dropna().astype(str).isin(DISTRICT_CODES.keys()).mean() < 0.5
+                ]
+                desc_col = candidatos[0] if candidatos else None
+
+        colunas_extra = [c for c in [desc_col] if c and c in df_base.columns]
+        if not eh_medida_valor and "Quantity Description" in df_base.columns:
+            colunas_extra.append("Quantity Description")
+
+        group_cols = [c for c in [hts_col, via_col_local] if c]
+        if group_cols:
+            df_agg = (
+                df_base.groupby(group_cols, as_index=False)
+                .agg({**{c: "first" for c in colunas_extra}, **{c: "sum" for c in periodo_cols}})
+            )
+        else:
+            soma = {c: df_base[c].sum(skipna=True) for c in periodo_cols}
+            df_agg = pd.DataFrame([soma])
+            for c in colunas_extra:
+                df_agg[c] = None
+
+        if "Quantity Description" in df_agg.columns:
+            df_agg["Quantity Description"] = (
+                df_agg["Quantity Description"].astype(str).str.replace("Value for: ", "", regex=False)
+            )
+            df_agg = df_agg.rename(columns={"Quantity Description": "Unidade de Medida"})
+
+        id_vars = [c for c in df_agg.columns if c not in periodo_cols]
+        df_longo = df_agg.melt(
             id_vars=id_vars, value_vars=periodo_cols,
             var_name="_Periodo", value_name=nome_valor,
         )
         df_longo["Data"] = df_longo["_Periodo"].map(_periodo_para_data)
         df_longo = df_longo.drop(columns=["_Periodo"])
+
         if monthly:
             df_longo["Tipo"] = "Realizado"
             df_proj = calcular_projecao_hts_via(medida_label)
             if not df_proj.empty:
+                # Preenche a Descrição das linhas projetadas via mapa
+                # HTS -> Descrição (constante por HTS, então dá pra
+                # reaproveitar mesmo sem ter sido calculado por linha).
+                if hts_col and desc_col and hts_col in df_proj.columns:
+                    mapa_desc = (
+                        df_agg.dropna(subset=[hts_col])
+                        .drop_duplicates(hts_col)
+                        .set_index(hts_col)[desc_col]
+                        .to_dict()
+                    )
+                    df_proj[desc_col] = df_proj[hts_col].map(mapa_desc)
                 df_longo = pd.concat([df_longo, df_proj], ignore_index=True, sort=False)
 
         ordem = ["Data"] + [c for c in df_longo.columns if c not in ("Data", nome_valor)] + [nome_valor]
@@ -582,45 +642,51 @@ if "df_eua_multi" in st.session_state:
     def preparar_df_totais(df, medida_label):
         """Tabela resumo por HTS (soma de país+via de entrada), em
         formato longo. Mantém a descrição do produto e, em Quantidade, a
-        unidade de medida. Em Valor, inclui linhas "TOTAL GERAL" (soma de
-        todos os HTS) por período. Em Quantidade, não -- HTS diferentes
-        podem ter unidades de medida diferentes."""
+        unidade de medida."""
         periodo_cols = periodo_cols_de(df)
         eh_medida_valor = "Quantity" not in medida_label
         nome_valor = "Valor (USD)" if eh_medida_valor else "Volume"
-        label_cols = [c for c in df.columns if c not in periodo_cols]
-
-        hts_col = None
-        for c in label_cols:
-            valores = set(str(v) for v in df[c].dropna().unique())
-            if valores and valores.issubset(set(hts_codes)):
-                hts_col = c
-                break
 
         if not periodo_cols:
             return pd.DataFrame()
+
+        colunas_periodo_completas = (
+            [c for c in df.columns if re.match(r"^[A-Za-zçã]{3}/\d{4}$", str(c))]
+            if monthly else [c for c in years if c in df.columns]
+        )
+        colunas_a_descartar = [c for c in colunas_periodo_completas if c not in periodo_cols]
+        df_base = df.drop(columns=colunas_a_descartar, errors="ignore") if colunas_a_descartar else df
+
+        label_cols = [c for c in df_base.columns if c not in periodo_cols]
+
+        hts_col = None
+        for c in label_cols:
+            valores = set(str(v) for v in df_base[c].dropna().unique())
+            if valores and valores.issubset(set(hts_codes)):
+                hts_col = c
+                break
 
         # Coluna de descrição do produto (mesma lógica usada para os
         # rótulos de HTS no seletor dos gráficos).
         desc_col = None
         if hts_col:
-            if "Description" in df.columns:
+            if "Description" in df_base.columns:
                 desc_col = "Description"
             else:
                 candidatos = [c for c in label_cols if c not in (hts_col, "Quantity Description")]
                 candidatos = [
                     c for c in candidatos
-                    if df[c].dropna().astype(str).isin(COUNTRY_CODES.keys()).mean() < 0.5
-                    and df[c].dropna().astype(str).isin(DISTRICT_CODES.keys()).mean() < 0.5
+                    if df_base[c].dropna().astype(str).isin(COUNTRY_CODES.keys()).mean() < 0.5
+                    and df_base[c].dropna().astype(str).isin(DISTRICT_CODES.keys()).mean() < 0.5
                 ]
                 desc_col = candidatos[0] if candidatos else None
 
         if hts_col:
-            colunas_extra = [c for c in [desc_col] if c and c in df.columns]
-            if not eh_medida_valor and "Quantity Description" in df.columns:
+            colunas_extra = [c for c in [desc_col] if c and c in df_base.columns]
+            if not eh_medida_valor and "Quantity Description" in df_base.columns:
                 colunas_extra.append("Quantity Description")
             df_tot = (
-                df.groupby(hts_col, as_index=False)
+                df_base.groupby(hts_col, as_index=False)
                 .agg({
                     **{c: "first" for c in colunas_extra},
                     **{c: "sum" for c in periodo_cols},
@@ -629,7 +695,7 @@ if "df_eua_multi" in st.session_state:
             ordem_wide = [hts_col] + colunas_extra + periodo_cols
             df_tot = df_tot[ordem_wide]
         else:
-            soma = {c: df[c].sum(skipna=True) for c in periodo_cols}
+            soma = {c: df_base[c].sum(skipna=True) for c in periodo_cols}
             df_tot = pd.DataFrame([soma])
 
         if "Quantity Description" in df_tot.columns:
@@ -639,12 +705,6 @@ if "df_eua_multi" in st.session_state:
                 .str.replace("Value for: ", "", regex=False)
             )
             df_tot = df_tot.rename(columns={"Quantity Description": "Unidade de Medida"})
-
-        if eh_medida_valor and hts_col:
-            linha_total = {hts_col: "TOTAL GERAL"}
-            for c in periodo_cols:
-                linha_total[c] = df_tot[c].sum(skipna=True)
-            df_tot = pd.concat([df_tot, pd.DataFrame([linha_total])], ignore_index=True)
 
         # Melt pra formato longo.
         id_vars = [c for c in df_tot.columns if c not in periodo_cols]
@@ -666,17 +726,14 @@ if "df_eua_multi" in st.session_state:
                     .sum()
                 )
                 df_proj_hts["Tipo"] = "Projetado"
-
-                if eh_medida_valor:
-                    df_proj_total_geral = (
-                        df_proj_hts.groupby("Data", as_index=False)[nome_valor].sum()
+                if desc_col:
+                    mapa_desc = (
+                        df_tot.dropna(subset=[hts_col])
+                        .drop_duplicates(hts_col)
+                        .set_index(hts_col)[desc_col]
+                        .to_dict()
                     )
-                    df_proj_total_geral[hts_col] = "TOTAL GERAL"
-                    df_proj_total_geral["Tipo"] = "Projetado"
-                    df_proj_hts = pd.concat(
-                        [df_proj_hts, df_proj_total_geral], ignore_index=True, sort=False
-                    )
-
+                    df_proj_hts[desc_col] = df_proj_hts[hts_col].map(mapa_desc)
                 df_longo = pd.concat([df_longo, df_proj_hts], ignore_index=True, sort=False)
 
         ordem = ["Data"] + [c for c in df_longo.columns if c not in ("Data", nome_valor)] + [nome_valor]
