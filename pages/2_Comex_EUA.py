@@ -432,14 +432,116 @@ if "df_eua_multi" in st.session_state:
     def periodo_cols_de(df):
         if monthly:
             return [c for c in df.columns if re.match(r"^[A-Za-zçã]{3}/\d{4}$", str(c))]
-        return [c for c in years if c in df.columns]
+        cols = [c for c in years if c in df.columns]
+        # Ano corrente com total zerado (agregação anual ainda não
+        # publicada pela fonte) não aparece em nenhuma tabela/gráfico --
+        # centralizado aqui, vale tanto pra tabela quanto pros gráficos.
+        if str(ano_atual) in cols and df[str(ano_atual)].sum() == 0:
+            cols = [c for c in cols if c != str(ano_atual)]
+        return cols
+
+    def _periodo_para_data(label):
+        if monthly:
+            return periodo_label_para_data(label)
+        return pd.Timestamp(year=int(label), month=1, day=1)
+
+    def calcular_projecao_hts_via(medida_label):
+        """Para o modo Mensal: projeta por combinação HTS+Via de Entrada
+        (somando países), usando o histórico completo (dfs_por_medida_full)
+        com a mesma janela fixa de 60 meses usada nos gráficos. Retorna
+        DataFrame longo com Data, [coluna HTS], [coluna Via], Tipo=
+        "Projetado" e a métrica (Valor (USD)/Volume). País não aparece
+        nessas linhas -- a projeção não é feita nessa granularidade."""
+        if not monthly:
+            return pd.DataFrame()
+
+        df_full = dfs_por_medida_full.get(medida_label)
+        if df_full is None:
+            return pd.DataFrame()
+
+        periodo_cols_full = periodo_cols_de(df_full)
+        if len(periodo_cols_full) < 2:
+            return pd.DataFrame()
+
+        label_cols = [c for c in df_full.columns if c not in periodo_cols_full]
+
+        hts_col_local = None
+        for c in label_cols:
+            valores = set(str(v) for v in df_full[c].dropna().unique())
+            if valores and valores.issubset(set(hts_codes)):
+                hts_col_local = c
+                break
+
+        via_col_local = None
+        for c in label_cols:
+            valores = df_full[c].dropna().astype(str)
+            if len(valores) and valores.isin(DISTRICT_CODES.keys()).mean() >= 0.5:
+                via_col_local = c
+                break
+
+        if not hts_col_local or not via_col_local:
+            return pd.DataFrame()
+
+        eh_medida_valor = "Quantity" not in medida_label
+        nome_valor = "Valor (USD)" if eh_medida_valor else "Volume"
+
+        df_agrupado = (
+            df_full.groupby([hts_col_local, via_col_local], as_index=False)[periodo_cols_full]
+            .sum(min_count=1)
+        )
+        df_agrupado["_serie_id"] = df_agrupado[hts_col_local] + "||" + df_agrupado[via_col_local]
+
+        JANELA_MESES_FORECAST = 60
+        periodo_cols_janela = (
+            periodo_cols_full[-JANELA_MESES_FORECAST:]
+            if len(periodo_cols_full) > JANELA_MESES_FORECAST
+            else periodo_cols_full
+        )
+
+        df_wide = pd.DataFrame({
+            "data": [periodo_label_para_data(p) for p in periodo_cols_janela]
+        })
+        for _, r in df_agrupado.iterrows():
+            df_wide[r["_serie_id"]] = [r[c] for c in periodo_cols_janela]
+
+        try:
+            forecast_df = _forecast_cached(
+                df_wide.to_json(orient="split", date_format="iso"), h=6
+            )
+        except Exception:
+            return pd.DataFrame()
+
+        linhas = []
+        for serie_id in df_agrupado["_serie_id"]:
+            if serie_id not in forecast_df.columns:
+                continue
+            serie = forecast_df[serie_id].dropna()
+            # Mesma checagem usada nos gráficos: ignora projeções
+            # praticamente zeradas (sem valor real a mostrar).
+            if serie.empty or serie.abs().max() <= 1:
+                continue
+            hts_val, via_val = serie_id.split("||", 1)
+            for data, valor in serie.items():
+                linhas.append({
+                    "Data": data,
+                    hts_col_local: hts_val,
+                    via_col_local: via_val,
+                    nome_valor: valor,
+                    "Tipo": "Projetado",
+                })
+
+        if not linhas:
+            return pd.DataFrame()
+        return pd.DataFrame(linhas)
 
     def preparar_df_exibicao(df, medida_label):
-        """Aplica a mesma limpeza usada na exibição (remover/renomear
-        Quantity Description, adicionar coluna Total) -- reutilizada tanto
-        pela tabela em tela quanto pelos exports (Excel)."""
+        """Formato longo (uma linha por período): Data, HTS, País, Via de
+        Entrada, Descrição, [Unidade de Medida], Valor (USD)/Volume,
+        [Tipo]. Reutilizada tanto pela tabela em tela quanto pelos
+        exports (Excel)."""
         periodo_cols = periodo_cols_de(df)
         eh_medida_valor = "Quantity" not in medida_label
+        nome_valor = "Valor (USD)" if eh_medida_valor else "Volume"
 
         df_exibicao = df.copy()
 
@@ -456,20 +558,36 @@ if "df_eua_multi" in st.session_state:
                     columns={"Quantity Description": "Unidade de Medida"}
                 )
 
-        if periodo_cols:
-            df_exibicao["Total"] = df_exibicao[periodo_cols].sum(axis=1, skipna=True)
+        if not periodo_cols:
+            return df_exibicao, periodo_cols
 
-        return df_exibicao, periodo_cols
+        id_vars = [c for c in df_exibicao.columns if c not in periodo_cols]
+        df_longo = df_exibicao.melt(
+            id_vars=id_vars, value_vars=periodo_cols,
+            var_name="_Periodo", value_name=nome_valor,
+        )
+        df_longo["Data"] = df_longo["_Periodo"].map(_periodo_para_data)
+        df_longo = df_longo.drop(columns=["_Periodo"])
+        if monthly:
+            df_longo["Tipo"] = "Realizado"
+            df_proj = calcular_projecao_hts_via(medida_label)
+            if not df_proj.empty:
+                df_longo = pd.concat([df_longo, df_proj], ignore_index=True, sort=False)
+
+        ordem = ["Data"] + [c for c in df_longo.columns if c not in ("Data", nome_valor)] + [nome_valor]
+        df_longo = df_longo[ordem].sort_values("Data").reset_index(drop=True)
+
+        return df_longo, periodo_cols
 
     def preparar_df_totais(df, medida_label):
-        """Tabela resumo por HTS (soma de país+via de entrada), para não perder a
-        visão agregada agora que a consulta sempre vem desagregada.
-        Mantém a descrição do produto e, em Quantidade, a unidade de
-        medida (ambas constantes por HTS). Em Valor, inclui uma linha
-        final "TOTAL GERAL". Em Quantidade, não -- HTS diferentes podem
-        ter unidades de medida diferentes."""
+        """Tabela resumo por HTS (soma de país+via de entrada), em
+        formato longo. Mantém a descrição do produto e, em Quantidade, a
+        unidade de medida. Em Valor, inclui linhas "TOTAL GERAL" (soma de
+        todos os HTS) por período. Em Quantidade, não -- HTS diferentes
+        podem ter unidades de medida diferentes."""
         periodo_cols = periodo_cols_de(df)
         eh_medida_valor = "Quantity" not in medida_label
+        nome_valor = "Valor (USD)" if eh_medida_valor else "Volume"
         label_cols = [c for c in df.columns if c not in periodo_cols]
 
         hts_col = None
@@ -508,9 +626,8 @@ if "df_eua_multi" in st.session_state:
                     **{c: "sum" for c in periodo_cols},
                 })
             )
-            # Reordena: HTS, Descrição, [Unidade de Medida], anos/meses
-            ordem = [hts_col] + colunas_extra + periodo_cols
-            df_tot = df_tot[ordem]
+            ordem_wide = [hts_col] + colunas_extra + periodo_cols
+            df_tot = df_tot[ordem_wide]
         else:
             soma = {c: df[c].sum(skipna=True) for c in periodo_cols}
             df_tot = pd.DataFrame([soma])
@@ -523,25 +640,62 @@ if "df_eua_multi" in st.session_state:
             )
             df_tot = df_tot.rename(columns={"Quantity Description": "Unidade de Medida"})
 
-        df_tot["Total"] = df_tot[periodo_cols].sum(axis=1, skipna=True)
-
         if eh_medida_valor and hts_col:
             linha_total = {hts_col: "TOTAL GERAL"}
-            for c in periodo_cols + ["Total"]:
+            for c in periodo_cols:
                 linha_total[c] = df_tot[c].sum(skipna=True)
             df_tot = pd.concat([df_tot, pd.DataFrame([linha_total])], ignore_index=True)
 
-        return df_tot
+        # Melt pra formato longo.
+        id_vars = [c for c in df_tot.columns if c not in periodo_cols]
+        df_longo = df_tot.melt(
+            id_vars=id_vars, value_vars=periodo_cols,
+            var_name="_Periodo", value_name=nome_valor,
+        )
+        df_longo["Data"] = df_longo["_Periodo"].map(_periodo_para_data)
+        df_longo = df_longo.drop(columns=["_Periodo"])
+        if monthly:
+            df_longo["Tipo"] = "Realizado"
+
+            df_proj_hts_via = calcular_projecao_hts_via(medida_label)
+            if not df_proj_hts_via.empty and hts_col:
+                # Agrega a projeção HTS+Via por HTS (soma as vias) --
+                # mesma granularidade desta tabela resumo.
+                df_proj_hts = (
+                    df_proj_hts_via.groupby(["Data", hts_col], as_index=False)[nome_valor]
+                    .sum()
+                )
+                df_proj_hts["Tipo"] = "Projetado"
+
+                if eh_medida_valor:
+                    df_proj_total_geral = (
+                        df_proj_hts.groupby("Data", as_index=False)[nome_valor].sum()
+                    )
+                    df_proj_total_geral[hts_col] = "TOTAL GERAL"
+                    df_proj_total_geral["Tipo"] = "Projetado"
+                    df_proj_hts = pd.concat(
+                        [df_proj_hts, df_proj_total_geral], ignore_index=True, sort=False
+                    )
+
+                df_longo = pd.concat([df_longo, df_proj_hts], ignore_index=True, sort=False)
+
+        ordem = ["Data"] + [c for c in df_longo.columns if c not in ("Data", nome_valor)] + [nome_valor]
+        df_longo = df_longo[ordem].sort_values("Data").reset_index(drop=True)
+
+        return df_longo
 
     def renderizar_medida(df, medida_label, tab_key, df_exibicao, periodo_cols, df_totais=None, excel_buffer=None):
+        eh_medida_valor = "Quantity" not in medida_label
+        nome_valor = "Valor (USD)" if eh_medida_valor else "Volume"
+
         if df_totais is not None and not df_totais.empty:
             st.markdown("**Totais por HTS**")
             st.dataframe(
                 df_totais,
                 use_container_width=True,
                 column_config={
-                    col: st.column_config.NumberColumn(format="localized")
-                    for col in periodo_cols + (["Total"] if periodo_cols else [])
+                    nome_valor: st.column_config.NumberColumn(format="localized"),
+                    "Data": st.column_config.DateColumn(format="YYYY-MM-DD"),
                 },
             )
             st.markdown("**Detalhe (por País e Via de Entrada)**")
@@ -551,8 +705,8 @@ if "df_eua_multi" in st.session_state:
             df_exibicao,
             use_container_width=True,
             column_config={
-                col: st.column_config.NumberColumn(format="localized")
-                for col in periodo_cols + (["Total"] if periodo_cols else [])
+                nome_valor: st.column_config.NumberColumn(format="localized"),
+                "Data": st.column_config.DateColumn(format="YYYY-MM-DD"),
             },
         )
 
@@ -630,15 +784,6 @@ if "df_eua_multi" in st.session_state:
 
     if df_fonte is not None:
         periodo_cols = periodo_cols_de(df_fonte)
-
-        # No Anual, se o ano corrente estiver na lista mas ainda vier
-        # zerado/vazio (o total anual "fechado" ainda não foi publicado
-        # pela fonte, mesmo já havendo dado mensal parcial), tira ele da
-        # exibição -- uma barra vazia confunde mais do que ajuda.
-        if not monthly and str(ano_atual) in periodo_cols:
-            if df_fonte[str(ano_atual)].sum() == 0:
-                periodo_cols = [c for c in periodo_cols if c != str(ano_atual)]
-
         label_cols = [c for c in df_fonte.columns if c not in periodo_cols]
 
         # Detecta a coluna de HTS (comparando com os códigos que o
