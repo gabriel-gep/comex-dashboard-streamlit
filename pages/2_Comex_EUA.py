@@ -523,7 +523,9 @@ if "df_eua_multi" in st.session_state:
             hts_val, via_val = serie_id.split("||", 1)
             for data, valor in serie.items():
                 linhas.append({
-                    "Data": data,
+                    # statsforecast gera datas de FIM de mês (freq="ME") --
+                    # normaliza pro dia 1, igual às linhas Realizado.
+                    "Data": data.replace(day=1),
                     hts_col_local: hts_val,
                     via_col_local: via_val,
                     nome_valor: valor,
@@ -744,6 +746,7 @@ if "df_eua_multi" in st.session_state:
     def renderizar_medida(df, medida_label, tab_key, df_exibicao, periodo_cols, df_totais=None, excel_buffer=None):
         eh_medida_valor = "Quantity" not in medida_label
         nome_valor = "Valor (USD)" if eh_medida_valor else "Volume"
+        formato_data = "YYYY-MM-DD" if monthly else "YYYY"
 
         if df_totais is not None and not df_totais.empty:
             st.markdown("**Totais por HTS**")
@@ -752,10 +755,10 @@ if "df_eua_multi" in st.session_state:
                 use_container_width=True,
                 column_config={
                     nome_valor: st.column_config.NumberColumn(format="localized"),
-                    "Data": st.column_config.DateColumn(format="YYYY-MM-DD"),
+                    "Data": st.column_config.DateColumn(format=formato_data),
                 },
             )
-            st.markdown("**Detalhe (por País e Via de Entrada)**")
+            st.markdown("**Detalhe (por HTS e Via de Entrada)**")
 
         st.success(f"{len(df_exibicao)} linha(s) retornada(s).")
         st.dataframe(
@@ -763,7 +766,7 @@ if "df_eua_multi" in st.session_state:
             use_container_width=True,
             column_config={
                 nome_valor: st.column_config.NumberColumn(format="localized"),
-                "Data": st.column_config.DateColumn(format="YYYY-MM-DD"),
+                "Data": st.column_config.DateColumn(format=formato_data),
             },
         )
 
