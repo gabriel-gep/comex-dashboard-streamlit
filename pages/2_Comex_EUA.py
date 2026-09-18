@@ -53,6 +53,19 @@ def data_para_periodo_label(data):
     """Converte Timestamp -> 'Jan/2023'."""
     return f"{MES_ABBR_PT_INV[data.month]}/{data.year}"
 
+# Limiar de "série intermitente" -- se essa proporção (ou mais) dos meses
+# no histórico usado pro treino for ~zero, a série não é projetada. O
+# ETS multiplicativo suaviza picos esporádicos e "preenche" os meses
+# futuros de forma artificial nesses casos (ver conversa/decisão).
+LIMIAR_INTERMITENCIA = 0.5
+
+def _proporcao_meses_zerados(valores):
+    valores = list(valores)
+    if not valores:
+        return 1.0
+    zerados = sum(1 for v in valores if abs(v) <= 1)
+    return zerados / len(valores)
+
 def forecast_ets_mnm_robust(df, date_col, h=6, constant=1e-6, max_retries=2):
     """
     Mesma lógica usada no dash Brasil: ETS (MNM, sazonalidade 12), com
@@ -502,7 +515,10 @@ if "df_eua_multi" in st.session_state:
             "data": [periodo_label_para_data(p) for p in periodo_cols_janela]
         })
         for _, r in df_agrupado.iterrows():
-            df_wide[r["_serie_id"]] = [r[c] for c in periodo_cols_janela]
+            valores_janela = [r[c] for c in periodo_cols_janela]
+            if _proporcao_meses_zerados(valores_janela) >= LIMIAR_INTERMITENCIA:
+                continue  # série intermitente -- não projeta (ver conversa)
+            df_wide[r["_serie_id"]] = valores_janela
 
         try:
             forecast_df = _forecast_cached(
@@ -1099,12 +1115,25 @@ if "df_eua_multi" in st.session_state:
                             df_wide_forecast = pd.DataFrame({
                                 "data": [periodo_label_para_data(p) for p in periodo_cols_forecast]
                             })
+                            vias_intermitentes = []
                             for via in vias_selecionadas:
                                 linhas_via = df_via_full[df_via_full[via_col] == via]
                                 if linhas_via.empty:
                                     continue
                                 row = linhas_via.iloc[0]
-                                df_wide_forecast[via] = [row.get(c, 0) for c in periodo_cols_forecast]
+                                valores_janela = [row.get(c, 0) for c in periodo_cols_forecast]
+                                if _proporcao_meses_zerados(valores_janela) >= LIMIAR_INTERMITENCIA:
+                                    vias_intermitentes.append(via)
+                                    continue
+                                df_wide_forecast[via] = valores_janela
+
+                            if vias_intermitentes:
+                                st.caption(
+                                    "⚠️ Sem projeção para: **" + "**, **".join(vias_intermitentes) +
+                                    "** -- histórico com muitos meses sem comércio (padrão "
+                                    "intermitente/esporádico), onde este modelo de projeção "
+                                    "não é confiável."
+                                )
 
                             forecast_df = _forecast_cached(
                                 df_wide_forecast.to_json(orient="split", date_format="iso"),
