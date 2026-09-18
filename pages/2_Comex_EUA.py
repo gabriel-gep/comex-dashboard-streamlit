@@ -1147,6 +1147,20 @@ if "df_eua_multi" in st.session_state:
                         except Exception:
                             mostrar_projecao = False
 
+                    # Legenda Realizado/Projetado -- só quando existe de
+                    # fato ao menos uma via com projeção pra mostrar.
+                    if monthly and any(len(s) > 0 for s in forecast_por_via.values()):
+                        st.markdown(
+                            "<div style='display:flex; gap:24px; align-items:center; "
+                            "margin:4px 0 12px 0; font-size:0.9rem; color:#31333F;'>"
+                            "<span><span style='display:inline-block; width:12px; height:12px; "
+                            "background:blue; border-radius:2px; margin-right:6px;'></span>Realizado</span>"
+                            "<span><span style='display:inline-block; width:12px; height:12px; "
+                            "background:green; border-radius:2px; margin-right:6px;'></span>Projetado</span>"
+                            "</div>",
+                            unsafe_allow_html=True,
+                        )
+
                     # Vias sem NENHUM dado no período visível e sem
                     # projeção (histórico insuficiente/esparso para o
                     # modelo) não geram gráfico vazio -- são filtradas
@@ -1735,6 +1749,11 @@ if "df_eua_multi" in st.session_state:
                         .sort_values("_periodo_sort")
                         .reset_index(drop=True)
                     )
+
+                    # No Anual, mesma regra usada no resto do app: o ano
+                    # corrente não aparece (agregação ainda incompleta).
+                    if not monthly:
+                        df_modal = df_modal[df_modal["_periodo_label"] != str(ano_atual)].reset_index(drop=True)
 
                     periodo_modal_cols = df_modal["_periodo_label"].tolist()
 
