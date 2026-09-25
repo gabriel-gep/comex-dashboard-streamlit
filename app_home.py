@@ -88,7 +88,7 @@ with col2:
                 </div>
                 <div class="comex-card-desc">
                     Importações por código HTS, país de origem, via de entrada
-                    e modal de transporte (fontes: USITC DataWeb e Census
+                    e modal de transporte, com tratamento de outliers e projeções de valor (USD) e volume (fontes: USITC DataWeb e Census
                     Bureau International Trade API).
                 </div>
             </div>
