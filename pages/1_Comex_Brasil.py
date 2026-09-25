@@ -33,7 +33,7 @@ url = "https://api-comexstat.mdic.gov.br/general"
 st.markdown(
     """
     <h1 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-        Dashboard COMEX Importações — Brasil
+        Dashboard COMEX Importações - Brasil
     </h1>
     """,
     unsafe_allow_html=True
