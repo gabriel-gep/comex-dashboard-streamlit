@@ -33,7 +33,7 @@ url = "https://api-comexstat.mdic.gov.br/general"
 st.markdown(
     """
     <h1 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-        Dashboard COMEX Importações por URF
+        Dashboard COMEX Importações — Brasil
     </h1>
     """,
     unsafe_allow_html=True
@@ -48,9 +48,9 @@ st.warning(
 st.markdown("""
 ### Utilização do Aplicativo
 
-1. **Escolha o tipo de classificação para buscar os dados:** NCM (8 digitos da Nomenclatura Mercosul), Posição (4 primeiros digitos do NCM), Capítulo (2 primeiros digitos NCM)
-2. Selecione o ano inicial desejado *(Se houver muitos dados, o sistema vai automaticamente avançar para o ano seguinte até conseguir carregar)*
-3. Caso queira adicionar mais NCMs, posições ou capítulos, clique no símbolo de mais (+) para adicioná-los.
+1. Escolha o tipo de classificação para buscar os dados: **NCM** (8 dígitos da Nomenclatura Mercosul), **Posição** (4 primeiros dígitos do NCM) ou **Capítulo** (2 primeiros dígitos do NCM).
+2. Informe o(s) código(s) correspondente(s) na caixa de texto, um por linha — pontos são removidos automaticamente.
+3. Selecione o ano inicial desejado *(se houver muitos dados, o sistema vai automaticamente avançar para o ano seguinte até conseguir carregar)*.
 4. Clique em **Buscar dados** SEMPRE que quiser carregar ou atualizar as visualizações.
 """)
 
