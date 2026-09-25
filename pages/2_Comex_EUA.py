@@ -216,14 +216,14 @@ year_start, year_end = st.sidebar.slider(
 years = [str(y) for y in range(year_start, year_end + 1)]
 
 countries = st.sidebar.multiselect(
-    "Países de origem (opcional — vazio = todos)",
+    "Países de origem (opcional - vazio = todos)",
     options=sorted(COUNTRY_CODES.keys()),
     default=[],
 )
 aggregate_countries = False  # sempre desagregado
 
 districts = st.sidebar.multiselect(
-    "Via de entrada / distrito aduaneiro (opcional — vazio = todos)",
+    "Via de entrada / distrito aduaneiro (opcional - vazio = todos)",
     options=sorted(DISTRICT_CODES.keys()),
     default=[],
 )
