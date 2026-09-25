@@ -41,7 +41,7 @@ st.markdown(
 
 st.warning(
     "**Fonte:** Comex Stat / MDIC (Ministério do Desenvolvimento, Indústria, "
-    "Comércio e Serviços) — dados oficiais de comércio exterior do Brasil. "
+    "Comércio e Serviços) - dados oficiais de comércio exterior do Brasil. "
     "Consulta atual cobre **Importações**, por NCM/Posição/Capítulo."
 )
 
