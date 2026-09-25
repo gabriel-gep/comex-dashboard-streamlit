@@ -174,7 +174,7 @@ st.warning(
 st.markdown("""
 ### Utilização do Aplicativo
 
-1. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule).
+1. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule) - pontos são removidos automaticamente.
 2. Escolha a(s) métrica(s): **Valor** (USD) e/ou **Quantidade** (unidade do produto).
 3. Escolha o período: **Anual** ou **Mensal** (linha do tempo contínua).
 4. Opcionalmente, filtre por país(es) de origem e/ou via de entrada (porto/distrito aduaneiro).
