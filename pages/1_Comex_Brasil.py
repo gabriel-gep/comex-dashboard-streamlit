@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 import certifi
 import numpy as np
+import re
 from statsforecast import StatsForecast
 from statsforecast.models import ETS
 import datetime
@@ -68,55 +69,70 @@ anos = range(2020, ano_atual)
 anos_cap = range(ano_atual - 2, ano_atual +1)
 
 if filtro_selecionado == "Posição (4 primeiros digitos)":
-    ano_inicial = st.sidebar.selectbox("Selecione o ano inicial", anos)
-    
     filtro = "heading"
-    st.sidebar.write("Digite os códigos de Posição:")
-    num_fields = st.sidebar.number_input("Quantas Posições?", min_value=1, max_value=10, value=2, help="O máximo permitido são 10 posições")
-    
-    headings = []
-    for i in range(num_fields):
-        heading = st.sidebar.text_input(f"Posição {i+1}:", value="2901" if i == 0 else "", max_chars= 4)
-        if heading and heading.isdigit():
-            headings.append(heading)
-    
+
+    posicao_input = st.sidebar.text_area(
+        "Código de Posição (um por linha)",
+        value="2901",
+        help=(
+            "Ex: 2901 — pontos são removidos automaticamente. Pode "
+            "informar vários, um por linha. O máximo permitido são "
+            "10 posições."
+        ),
+    )
+    _raw_lines_pos = [c.strip() for c in posicao_input.splitlines() if c.strip()]
+    headings = [re.sub(r"[^0-9]", "", line)[:4] for line in _raw_lines_pos]
+    headings = [c for c in headings if c][:10]
+
     if headings:
         api_param = headings
         #st.sidebar.success(f"Parâmetro para API: {api_param}")
 
-elif filtro_selecionado == "NCM (completo)":
     ano_inicial = st.sidebar.selectbox("Selecione o ano inicial", anos)
-    
+
+elif filtro_selecionado == "NCM (completo)":
     filtro = "ncm"
-    st.sidebar.write("Digite os códigos do NCM:")
-    num_fields = st.sidebar.number_input("Quantos NCMs?", min_value=1, max_value=20, value=2, help = "O máximo permitido são 20 NCMs")
-    
-    ncms = []
-    for i in range(num_fields):
-        ncm = st.sidebar.text_input(f"NCM {i+1}:", value="29339999" if i == 0 else "", max_chars= 8)
-        if ncm and ncm.isdigit():
-            ncms.append(ncm)
-    
+
+    ncm_input = st.sidebar.text_area(
+        "Código NCM (um por linha)",
+        value="29339999",
+        help=(
+            "Ex: 01012100 ou 0101.21.00 — pontos são removidos "
+            "automaticamente. Pode informar vários, um por linha. "
+            "O máximo permitido são 20 NCMs."
+        ),
+    )
+    _raw_lines_ncm = [c.strip() for c in ncm_input.splitlines() if c.strip()]
+    ncms = [re.sub(r"[^0-9]", "", line)[:8] for line in _raw_lines_ncm]
+    ncms = [c for c in ncms if c][:20]
+
     if ncms:
         api_param = ncms
         #st.sidebar.success(f"Parâmetro para API: {api_param}")
 
+    ano_inicial = st.sidebar.selectbox("Selecione o ano inicial", anos)
+
 elif filtro_selecionado == "Capítulo(2 primeiros digitos)":
-    ano_inicial = st.sidebar.selectbox("Selecione o ano inicial", anos_cap)
-    
     filtro = "chapter"
-    st.sidebar.write("Digite os códigos dos capítulos:")
-    num_fields = st.sidebar.number_input("Quantos capítulos?", min_value=1, max_value=3, value=1, help = "O máximo permitido são 3 capítulos")
-    
-    chapters = []
-    for i in range(num_fields):
-        chapter = st.sidebar.text_input(f"Chapter {i+1}:", value="81" if i == 0 else "", max_chars= 2)
-        if chapter and chapter.isdigit():
-            chapters.append(chapter)
-    
+
+    capitulo_input = st.sidebar.text_area(
+        "Código de Capítulo (um por linha)",
+        value="81",
+        help=(
+            "Ex: 81 — pontos são removidos automaticamente. Pode "
+            "informar vários, um por linha. O máximo permitido são "
+            "3 capítulos."
+        ),
+    )
+    _raw_lines_cap = [c.strip() for c in capitulo_input.splitlines() if c.strip()]
+    chapters = [re.sub(r"[^0-9]", "", line)[:2] for line in _raw_lines_cap]
+    chapters = [c for c in chapters if c][:3]
+
     if chapters:
         api_param = chapters
         #st.sidebar.success(f"Parâmetro para API: {api_param}")
+
+    ano_inicial = st.sidebar.selectbox("Selecione o ano inicial", anos_cap)
 
 # Área principal
 #st.write(f"Data selecionada: {data_formatada}")
@@ -1473,7 +1489,7 @@ if "df" in st.session_state:
                 # --- Selecionar até o país que faz ultrapassar 95% ---
                 df_top95 = df_grouped.iloc[:idx_limite + 1].copy()
 
-                # --- Adicionar “Outros” se houver mais países ---
+                # --- Adicionar "Outros" se houver mais países ---
                 if idx_limite + 1 < len(df_grouped):
                     outros_valor = df_grouped.iloc[idx_limite + 1:]["metricStatistic"].sum()
                     if outros_valor > 0:
