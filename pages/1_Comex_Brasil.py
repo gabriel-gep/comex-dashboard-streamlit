@@ -49,7 +49,7 @@ st.markdown("""
 ### Utilização do Aplicativo
 
 1. Escolha o tipo de classificação para buscar os dados: **NCM** (8 dígitos da Nomenclatura Mercosul), **Posição** (4 primeiros dígitos do NCM) ou **Capítulo** (2 primeiros dígitos do NCM).
-2. Informe o(s) código(s) correspondente(s) na caixa de texto, um por linha — pontos são removidos automaticamente.
+2. Informe o(s) código(s) correspondente(s) na caixa de texto, um por linha - pontos são removidos automaticamente.
 3. Selecione o ano inicial desejado *(se houver muitos dados, o sistema vai automaticamente avançar para o ano seguinte até conseguir carregar)*.
 4. Clique em **Buscar dados** SEMPRE que quiser carregar ou atualizar as visualizações.
 """)
