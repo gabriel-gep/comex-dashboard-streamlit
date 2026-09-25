@@ -69,7 +69,7 @@ with col1:
                     <img src="{FLAG_BR}" width="28">Brasil
                 </div>
                 <div class="comex-card-desc">
-                    Importações por URF, NCM/Posição/Capítulo, com tratamento de
+                    Importações por NCM/Posição/Capítulo, URF, país de origem e modal de transporte, com tratamento de
                     outliers e projeção de volume (fonte: Comex Stat / MDIC).
                 </div>
             </div>
