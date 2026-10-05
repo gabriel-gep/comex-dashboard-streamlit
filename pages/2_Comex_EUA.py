@@ -170,7 +170,7 @@ st.warning(
     "Consulta atual cobre apenas **Importações** (Import For Consumption), por código HTS. "
     "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb.  \n"
     "**Base de valor:** os valores em USD (*Customs Value*) seguem a base FAS, "
-    "equivalente a **FOB** — ou seja, sem frete, seguro nem tarifas de importação embutidos."
+    "equivalente a **FOB**, ou seja, sem frete, seguro nem tarifas de importação embutidos."
 )
 
 st.markdown("""
