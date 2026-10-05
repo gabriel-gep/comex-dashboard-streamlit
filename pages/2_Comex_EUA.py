@@ -168,16 +168,18 @@ st.warning(
     "**Fontes:** USITC DataWeb e Census Bureau International Trade API "
     "(dados oficiais de comércio exterior dos EUA). "
     "Consulta atual cobre apenas **Importações** (Import For Consumption), por código HTS. "
-    "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb."
+    "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb.  \n"
+    "**Base de valor:** os valores em USD (*Customs Value*) seguem a base FAS, "
+    "equivalente a **FOB** — ou seja, sem frete, seguro nem tarifas de importação embutidos."
 )
 
 st.markdown("""
 ### Utilização do Aplicativo
 
-1. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule) - pontos são removidos automaticamente.
+1. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule) - pontos são removidos automaticamente. Os filtros de país e via de entrada aparecem depois que o HTS é informado.
 2. Escolha a(s) métrica(s): **Valor** (USD) e/ou **Quantidade** (unidade do produto).
 3. Escolha o período: **Anual** ou **Mensal** (linha do tempo contínua).
-4. Opcionalmente, filtre por país(es) de origem e/ou via de entrada (porto/distrito aduaneiro).
+4. Opcionalmente, filtre por país(es) de origem e/ou via de entrada (porto/distrito aduaneiro) - as opções listam só o que tem comércio registrado para o(s) HTS informado(s).
 5. Clique em **Buscar dados** SEMPRE que quiser carregar ou atualizar as visualizações.
 """)
 
@@ -188,7 +190,8 @@ st.sidebar.header("🔍 Filtros")
 
 hts_input = st.sidebar.text_area(
     "Códigos HTS (um por linha)",
-    value="0306144030",
+    value="",
+    placeholder="Ex: 0306144030",
     help=(
         "Ex: 0306144030 ou 2505.10.10.00 — pontos são removidos "
         "automaticamente. Pode informar vários, um por linha."
@@ -215,24 +218,8 @@ year_start, year_end = st.sidebar.slider(
 )
 years = [str(y) for y in range(year_start, year_end + 1)]
 
-countries = st.sidebar.multiselect(
-    "Países de origem (opcional - vazio = todos)",
-    options=sorted(COUNTRY_CODES.keys()),
-    default=[],
-)
 aggregate_countries = False  # sempre desagregado
-
-districts = st.sidebar.multiselect(
-    "Via de entrada / distrito aduaneiro (opcional - vazio = todos)",
-    options=sorted(DISTRICT_CODES.keys()),
-    default=[],
-)
 aggregate_districts = False  # sempre desagregado
-
-buscar = st.sidebar.button(
-    "Buscar dados",
-    disabled=not (metrica_valor or metrica_quantidade),
-)
 
 # --------------------------------------------------------------------
 # Tokens/chaves vêm dos secrets, sem alerta visual (monitoramento é feito
@@ -240,6 +227,188 @@ buscar = st.sidebar.button(
 # --------------------------------------------------------------------
 TOKEN = st.secrets.get("DATAWEB_TOKEN")
 CENSUS_API_KEY = st.secrets.get("CENSUS_API_KEY")
+
+
+# --------------------------------------------------------------------
+# Descoberta das opções de país/via para o(s) HTS informado(s).
+# Faz duas consultas anuais leves ao DataWeb (uma quebrando só por país,
+# outra só por via), sobre TODO o histórico (2010 até hoje) -- assim as
+# opções não mudam quando o usuário mexe no slider de anos. Em cache,
+# então repetir o mesmo(s) HTS não gera nova chamada.
+# `_token` com underscore: o Streamlit não usa esse argumento na chave
+# do cache.
+# --------------------------------------------------------------------
+@st.cache_data(show_spinner=False, ttl=3600)
+def _descobrir_opcoes_hts(hts_tuple, _token, ano_inicio, ano_fim):
+    anos = [str(y) for y in range(ano_inicio, ano_fim + 1)]
+
+    def _valores_com_comercio(response, codigos_validos):
+        df_d = parse_report(response, measure_num=0)
+        cols_ano = [c for c in anos if c in df_d.columns]
+        for c in cols_ano:
+            df_d[c] = pd.to_numeric(
+                df_d[c].astype(str).str.replace(",", "", regex=False).str.strip(),
+                errors="coerce",
+            ).fillna(0)
+        if cols_ano:
+            df_d = df_d[df_d[cols_ano].sum(axis=1) > 0]
+        for c in df_d.columns:
+            if c in cols_ano:
+                continue
+            valores = df_d[c].dropna().astype(str)
+            if len(valores) and valores.isin(codigos_validos.keys()).mean() >= 0.5:
+                return {v for v in valores.unique() if v in codigos_validos}
+        return set()
+
+    q_paises = build_import_query(
+        hts_codes=list(hts_tuple), years=anos, countries=[],
+        aggregate_commodities=False, aggregate_countries=False,
+        measures=["CONS_CUSTOMS_VALUE"], monthly=False,
+        districts=[], aggregate_districts=True,
+    )
+    paises = _valores_com_comercio(run_report(q_paises, _token), COUNTRY_CODES)
+
+    q_vias = build_import_query(
+        hts_codes=list(hts_tuple), years=anos, countries=[],
+        aggregate_commodities=False, aggregate_countries=True,
+        measures=["CONS_CUSTOMS_VALUE"], monthly=False,
+        districts=[], aggregate_districts=False,
+    )
+    vias = _valores_com_comercio(run_report(q_vias, _token), DISTRICT_CODES)
+
+    return sorted(paises), sorted(vias)
+
+
+# Os filtros de país e via só aparecem depois que o usuário informa um HTS.
+countries = []
+districts = []
+if hts_codes:
+    opcoes_paises, opcoes_vias, falhou_descoberta = None, None, False
+    if TOKEN:
+        with st.sidebar:
+            with st.spinner("Buscando países e vias de entrada do(s) HTS..."):
+                try:
+                    opcoes_paises, opcoes_vias = _descobrir_opcoes_hts(
+                        tuple(hts_codes), TOKEN, 2010, ano_atual
+                    )
+                except Exception:
+                    falhou_descoberta = True
+    else:
+        falhou_descoberta = True
+
+    if falhou_descoberta:
+        st.sidebar.caption(
+            "⚠️ Não foi possível listar os países e vias deste(s) HTS agora "
+            "(confira o código informado). Exibindo todas as opções."
+        )
+        opcoes_paises = sorted(COUNTRY_CODES.keys())
+        opcoes_vias = sorted(DISTRICT_CODES.keys())
+
+    if not opcoes_paises and not opcoes_vias:
+        st.sidebar.info(
+            "Nenhum país ou via de entrada com comércio registrado para "
+            "esse(s) HTS -- confira os códigos informados."
+        )
+    else:
+        countries = st.sidebar.multiselect(
+            "Países de origem (opcional - vazio = todos)",
+            options=opcoes_paises,
+            default=[],
+        )
+        districts = st.sidebar.multiselect(
+            "Via de entrada / distrito aduaneiro (opcional - vazio = todos)",
+            options=opcoes_vias,
+            default=[],
+        )
+
+buscar = st.sidebar.button(
+    "Buscar dados",
+    disabled=not (metrica_valor or metrica_quantidade) or not hts_codes,
+)
+
+# --------------------------------------------------------------------
+# Ano corrente no modo Anual (acumulado do ano até o último mês publicado)
+# --------------------------------------------------------------------
+EN_MESES = ["January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"]
+
+
+def _buscar_ytd_ano_corrente(hts_codes_, countries_, districts_, measures_, token_):
+    """Consulta MENSAL só do ano corrente e soma os meses já publicados.
+    Retorna ({label da medida: DataFrame ids + _YTD}, {label: 'Jul'})."""
+    hoje_ = dt.date.today()
+    ultimo_mes_completo_ = hoje_.replace(day=1) - dt.timedelta(days=1)
+    if ultimo_mes_completo_.year != ano_atual:
+        return {}, {}  # janeiro: ainda não há mês fechado do ano corrente
+    n_max = ultimo_mes_completo_.month
+
+    query_m = build_import_query(
+        hts_codes=hts_codes_, years=[str(ano_atual)], countries=countries_,
+        aggregate_commodities=False, aggregate_countries=False,
+        measures=measures_, monthly=True, districts=districts_,
+        aggregate_districts=False,
+    )
+    resp_m = run_report(query_m, token_)
+
+    dfs_ytd, ate_mes = {}, {}
+    for i in range(num_tables(resp_m)):
+        label_m = get_table_label(resp_m, measure_num=i)
+        d = parse_report(resp_m, measure_num=i)
+        meses = [m for m in EN_MESES[:n_max] if m in d.columns]
+        if not meses:
+            continue
+        for m in meses:
+            d[m] = pd.to_numeric(
+                d[m].astype(str).str.replace(",", "", regex=False).str.strip()
+                .replace({"": None, "nan": None}),
+                errors="coerce",
+            ).fillna(0)
+
+        # mesma regra do modo Mensal: meses finais ainda sem publicação
+        # (total zerado) não contam como "dado" (limite de 3 meses).
+        meses_validos = list(meses)
+        removidos_ = 0
+        while (
+            len(meses_validos) > 1
+            and removidos_ < 3
+            and d[meses_validos[-1]].sum() == 0
+        ):
+            meses_validos.pop()
+            removidos_ += 1
+
+        d["_YTD"] = d[meses_validos].sum(axis=1)
+        if d["_YTD"].sum() == 0:
+            continue
+
+        id_cols_m = [c for c in d.columns if c not in EN_MESES and c not in ("Year", "_YTD")]
+        d = d.groupby(id_cols_m, as_index=False, dropna=False)["_YTD"].sum()
+        dfs_ytd[label_m] = d
+        ate_mes[label_m] = MES_ABBR_PT_INV[EN_MESES.index(meses_validos[-1]) + 1]
+    return dfs_ytd, ate_mes
+
+
+def _incorporar_ytd(df_anual, df_ytd):
+    """Coloca o acumulado do ano corrente na coluna do ano (que o DataWeb
+    devolve zerada no Anual), casando pelas colunas de identificação."""
+    col = str(ano_atual)
+    id_cols = [c for c in df_anual.columns if c not in years]
+    comuns = [c for c in id_cols if c in df_ytd.columns]
+    if not comuns:
+        return df_anual
+    ytd = (
+        df_ytd[comuns + ["_YTD"]]
+        .groupby(comuns, as_index=False, dropna=False)["_YTD"].sum()
+        .rename(columns={"_YTD": col})
+    )
+    base = df_anual.drop(columns=[col], errors="ignore")
+    merged = base.merge(ytd, on=comuns, how="outer")
+    for c in years:
+        if c in merged.columns:
+            merged[c] = merged[c].fillna(0)
+    if col not in merged.columns:
+        merged[col] = 0.0
+    return merged
+
 
 # --------------------------------------------------------------------
 # Execução da consulta
@@ -296,6 +465,21 @@ if buscar:
         except Exception as e:
             st.error(f"Erro ao consultar a API DataWeb: {e}")
             st.stop()
+
+        # No Anual, o DataWeb só consolida anos COMPLETOS -- o ano em andamento
+        # volta zerado. Para incluí-lo, soma os meses já publicados (consulta
+        # mensal só do ano corrente) e guarda até qual mês há dado.
+        ytd_por_label, ytd_ate_mes = {}, {}
+        if (not monthly) and str(ano_atual) in years:
+            try:
+                ytd_por_label, ytd_ate_mes = _buscar_ytd_ano_corrente(
+                    hts_codes, countries, districts, measures, TOKEN
+                )
+            except Exception:
+                st.warning(
+                    f"Não foi possível obter o acumulado de {ano_atual}; "
+                    "esse ano não aparecerá nos gráficos anuais."
+                )
 
         dfs_por_medida = {}
         dfs_por_medida_full = {}  # versão com o histórico extra, só para a projeção
@@ -389,6 +573,8 @@ if buscar:
                     if colunas_fora_do_pedido:
                         df_i = df_i.drop(columns=colunas_fora_do_pedido)
                 else:
+                    if label in ytd_por_label:
+                        df_i = _incorporar_ytd(df_i, ytd_por_label[label])
                     dfs_por_medida_full[label] = df_i  # anual não estende nada
 
                 dfs_por_medida[label] = df_i
@@ -400,6 +586,8 @@ if buscar:
     st.session_state["df_eua_multi_full"] = dfs_por_medida_full
     st.session_state["df_eua_monthly"] = monthly
     st.session_state["df_eua_years"] = years
+    st.session_state["df_eua_ytd_mes"] = ytd_ate_mes
+    st.session_state["df_eua_hts"] = hts_codes
 
 # --------------------------------------------------------------------
 # Cache da consulta à Census API (modo de transporte) -- evita rebuscar
@@ -441,6 +629,10 @@ if "df_eua_multi" in st.session_state:
     dfs_por_medida_full = st.session_state.get("df_eua_multi_full", {})
     monthly = st.session_state.get("df_eua_monthly", False)
     years = st.session_state.get("df_eua_years", [])
+    ytd_mes_por_medida = st.session_state.get("df_eua_ytd_mes", {})
+    # Os resultados exibidos pertencem ao(s) HTS da última busca -- não ao que
+    # está digitado agora na barra lateral (que pode já ter sido alterado).
+    hts_codes = st.session_state.get("df_eua_hts", hts_codes)
 
     def periodo_cols_de(df):
         if monthly:
@@ -764,6 +956,13 @@ if "df_eua_multi" in st.session_state:
         nome_valor = "Valor (USD)" if eh_medida_valor else "Volume"
         formato_data = "YYYY-MM-DD" if monthly else "YYYY"
 
+        ate_mes_atual = ytd_mes_por_medida.get(medida_label)
+        if (not monthly) and ate_mes_atual and str(ano_atual) in periodo_cols:
+            st.caption(
+                f"ℹ️ {ano_atual} é o ano em andamento: inclui dados apenas até "
+                f"{ate_mes_atual}/{ano_atual} (acumulado parcial)."
+            )
+
         if df_totais is not None and not df_totais.empty:
             st.markdown("**Totais por HTS**")
             st.dataframe(
@@ -813,6 +1012,13 @@ if "df_eua_multi" in st.session_state:
             if not df_totais_tmp.empty:
                 df_totais_tmp.to_excel(writer, sheet_name=f"{nome_base} - Totais"[:31], index=False)
             df_exibicao_tmp.to_excel(writer, sheet_name=f"{nome_base} - Detalhe"[:31], index=False)
+        if (not monthly) and ytd_mes_por_medida and str(ano_atual) in years:
+            notas = [
+                f"{ano_atual} é o ano em andamento: inclui dados apenas até "
+                f"{mes}/{ano_atual} ({label_pt(lbl)})."
+                for lbl, mes in ytd_mes_por_medida.items()
+            ]
+            pd.DataFrame({"Notas": notas}).to_excel(writer, sheet_name="Notas", index=False)
     excel_bytes = buffer.getvalue()
 
     if len(dfs_por_medida) > 1:
@@ -857,6 +1063,14 @@ if "df_eua_multi" in st.session_state:
 
     chave_medida = "Customs Value" if metrica_grafico == "Valor (USD)" else "First Unit of Quantity"
     df_fonte = dfs_por_medida.get(chave_medida)
+
+    # No Anual, o ano em andamento é rotulado com o último mês que tem dado.
+    ate_mes_ytd = ytd_mes_por_medida.get(chave_medida)
+
+    def rotulo_periodo(p):
+        if (not monthly) and ate_mes_ytd and str(p) == str(ano_atual):
+            return f"{p} (até {ate_mes_ytd})"
+        return str(p)
 
     if df_fonte is not None:
         periodo_cols = periodo_cols_de(df_fonte)
@@ -982,12 +1196,17 @@ if "df_eua_multi" in st.session_state:
                 "do realizado."
             )
             if str(ano_atual) in years:
-                texto_aviso_anual += (
-                    f"  \n⚠️ O ano {ano_atual} está incluído no intervalo "
-                    "selecionado e ainda não terminou -- como o total anual "
-                    "completo ainda não está disponível na fonte, esse ano "
-                    "não aparece nos gráficos abaixo até fechar."
-                )
+                if ate_mes_ytd:
+                    texto_aviso_anual += (
+                        f"  \n⚠️ **{ano_atual}** é o ano em andamento: o total "
+                        f"reflete apenas os meses publicados, até "
+                        f"**{ate_mes_ytd}/{ano_atual}** (acumulado parcial, não o ano completo)."
+                    )
+                else:
+                    texto_aviso_anual += (
+                        f"  \n⚠️ **{ano_atual}** ainda não tem dados publicados "
+                        "na fonte e por isso não aparece nos gráficos abaixo."
+                    )
             st.info(texto_aviso_anual)
 
         if not periodo_cols:
@@ -998,6 +1217,7 @@ if "df_eua_multi" in st.session_state:
             if len(periodo_cols) > 1:
                 periodo_inicio, periodo_fim = st.select_slider(
                     "Período exibido nos gráficos",
+                    format_func=rotulo_periodo,
                     options=periodo_cols,
                     value=(periodo_cols[0], periodo_cols[-1]),
                 )
@@ -1198,7 +1418,7 @@ if "df_eua_multi" in st.session_state:
                                 fig = go.Figure()
                                 fig.add_trace(
                                     go.Bar(
-                                        x=periodo_visivel, y=valores,
+                                        x=[rotulo_periodo(p) for p in periodo_visivel], y=valores,
                                         name="Realizado", marker_color="blue",
                                         hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                                     )
@@ -1248,6 +1468,7 @@ if "df_eua_multi" in st.session_state:
                         "Período exibido neste gráfico",
                         options=periodo_cols,
                         value=(periodo_cols[0], periodo_cols[-1]),
+                        format_func=rotulo_periodo,
                         key=f"periodo_slicer_grafico2_{combo_id}",
                     )
                     idx2_ini = periodo_cols.index(periodo2_inicio)
@@ -1295,7 +1516,7 @@ if "df_eua_multi" in st.session_state:
                         valores = [row[c] for c in periodo_visivel2]
                         fig2.add_trace(
                             go.Bar(
-                                x=periodo_visivel2,
+                                x=[rotulo_periodo(p) for p in periodo_visivel2],
                                 y=valores,
                                 name=str(via),
                                 marker_color=paleta[i % len(paleta)],
@@ -1361,6 +1582,7 @@ if "df_eua_multi" in st.session_state:
                         "Período considerado neste gráfico",
                         options=periodo_cols,
                         value=(periodo_cols[0], periodo_cols[-1]),
+                        format_func=rotulo_periodo,
                         key=f"periodo_slicer_grafico3_{combo_id}",
                     )
                     idx3_ini = periodo_cols.index(periodo3_inicio)
@@ -1498,6 +1720,7 @@ if "df_eua_multi" in st.session_state:
                         "Período considerado neste gráfico",
                         options=periodo_cols,
                         value=(periodo_cols[0], periodo_cols[-1]),
+                        format_func=rotulo_periodo,
                         key=f"periodo_slicer_grafico4_{combo_id}",
                     )
                     idx4_ini = periodo_cols.index(periodo4_inicio)
@@ -1750,11 +1973,26 @@ if "df_eua_multi" in st.session_state:
                         .reset_index(drop=True)
                     )
 
-                    # No Anual, mesma regra usada no resto do app: o ano
-                    # corrente não aparece (agregação ainda incompleta).
+                    # No Anual, o ano corrente entra como acumulado parcial,
+                    # rotulado com o último mês que tem dado na Census.
+                    ate_mes_modal = None
                     if not monthly:
-                        df_modal = df_modal[df_modal["_periodo_label"] != str(ano_atual)].reset_index(drop=True)
+                        d_atual = df_census[
+                            (df_census["Ano"] == str(ano_atual)) & (df_census["Valor Total"] > 0)
+                        ]
+                        if not d_atual.empty:
+                            ate_mes_modal = MES_ABBR_PT[d_atual["Mes_Num"].max()]
+                        else:
+                            df_modal = df_modal[
+                                df_modal["_periodo_label"] != str(ano_atual)
+                            ].reset_index(drop=True)
 
+                    def rotulo_modal(lbl):
+                        if (not monthly) and ate_mes_modal and lbl == str(ano_atual):
+                            return f"{lbl} (até {ate_mes_modal})"
+                        return lbl
+
+                    df_modal["_rotulo"] = df_modal["_periodo_label"].map(rotulo_modal)
                     periodo_modal_cols = df_modal["_periodo_label"].tolist()
 
                     if len(periodo_modal_cols) > 1:
@@ -1762,6 +2000,7 @@ if "df_eua_multi" in st.session_state:
                             "Período considerado neste gráfico",
                             options=periodo_modal_cols,
                             value=(periodo_modal_cols[0], periodo_modal_cols[-1]),
+                            format_func=rotulo_modal,
                             key=f"periodo_slicer_modal_{combo_id}",
                         )
                         idx_pm_ini = periodo_modal_cols.index(pm_inicio)
@@ -1803,7 +2042,7 @@ if "df_eua_multi" in st.session_state:
                         for col in ordem_modal:
                             fig_modal.add_trace(
                                 go.Scatter(
-                                    x=df_modal_visivel["_periodo_label"],
+                                    x=df_modal_visivel["_rotulo"],
                                     y=df_modal_visivel[col],
                                     mode="lines+markers",
                                     name=nomes_modal[col],
@@ -1817,7 +2056,7 @@ if "df_eua_multi" in st.session_state:
                         # a legenda tradicional. Calculados à parte (não dentro do
                         # loop acima) para poder afastar rótulos que ficariam
                         # sobrepostos quando os valores finais são muito próximos.
-                        ultimo_x = df_modal_visivel["_periodo_label"].iloc[-1]
+                        ultimo_x = df_modal_visivel["_rotulo"].iloc[-1]
                         ultimos_y = {col: df_modal_visivel[col].iloc[-1] for col in colunas_com_dado}
 
                         y_max_eixo = max(df_modal_visivel[c].max() for c in colunas_com_dado)
@@ -1856,7 +2095,7 @@ if "df_eua_multi" in st.session_state:
                                 key=lambda par: par[1],
                                 reverse=True,
                             )
-                            texto = f"<b>{row['_periodo_label']}</b><br>" + "<br>".join(
+                            texto = f"<b>{row['_rotulo']}</b><br>" + "<br>".join(
                                 f"{nome}: {valor:,.0f}" for nome, valor in pares
                             )
                             hover_textos.append(texto)
@@ -1864,7 +2103,7 @@ if "df_eua_multi" in st.session_state:
 
                         fig_modal.add_trace(
                             go.Scatter(
-                                x=df_modal_visivel["_periodo_label"],
+                                x=df_modal_visivel["_rotulo"],
                                 y=y_topo,
                                 mode="markers",
                                 marker=dict(opacity=0, size=20),
@@ -1916,6 +2155,7 @@ if "df_eua_multi" in st.session_state:
                         "Período considerado neste gráfico",
                         options=periodo_cols,
                         value=(periodo_cols[0], periodo_cols[-1]),
+                        format_func=rotulo_periodo,
                         key=f"periodo_slicer_grafico5_{combo_id}",
                     )
                     idx5_ini = periodo_cols.index(periodo5_inicio)
@@ -2008,6 +2248,7 @@ if "df_eua_multi" in st.session_state:
                         "Período considerado neste gráfico",
                         options=periodo_cols,
                         value=(periodo_cols[0], periodo_cols[-1]),
+                        format_func=rotulo_periodo,
                         key=f"periodo_slicer_grafico6_{combo_id}",
                     )
                     idx6_ini = periodo_cols.index(periodo6_inicio)
