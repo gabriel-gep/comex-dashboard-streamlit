@@ -399,26 +399,18 @@ def _buscar_ytd_ano_corrente(hts_codes_, countries_, districts_, measures_, toke
                 errors="coerce",
             ).fillna(0)
 
-        # mesma regra do modo Mensal: meses finais ainda sem publicação
-        # (total zerado) não contam como "dado" (limite de 3 meses).
-        meses_validos = list(meses)
-        removidos_ = 0
-        while (
-            len(meses_validos) > 1
-            and removidos_ < 3
-            and d[meses_validos[-1]].sum() == 0
-        ):
-            meses_validos.pop()
-            removidos_ += 1
-
-        d["_YTD"] = d[meses_validos].sum(axis=1)
-        if d["_YTD"].sum() == 0:
+        # O acumulado soma todos os meses fechados (os ainda não publicados são
+        # zero e não alteram a soma). O rótulo "até <mês>" usa o ÚLTIMO MÊS COM
+        # DADO de fato -- sem limite de defasagem.
+        meses_com_dado = [m for m in meses if d[m].sum() > 0]
+        if not meses_com_dado:
             continue
+        d["_YTD"] = d[meses].sum(axis=1)
 
         id_cols_m = [c for c in d.columns if c not in EN_MESES and c not in ("Year", "_YTD")]
         d = d.groupby(id_cols_m, as_index=False, dropna=False)["_YTD"].sum()
         dfs_ytd[label_m] = d
-        ate_mes[label_m] = MES_ABBR_PT_INV[EN_MESES.index(meses_validos[-1]) + 1]
+        ate_mes[label_m] = MES_ABBR_PT_INV[EN_MESES.index(meses_com_dado[-1]) + 1]
     return dfs_ytd, ate_mes
 
 
@@ -623,6 +615,10 @@ if buscar:
     st.session_state["df_eua_years"] = years
     st.session_state["df_eua_ytd_mes"] = ytd_ate_mes
     st.session_state["df_eua_hts"] = hts_codes
+    # Identifica a busca: entra na chave dos sliders/multiselects dos gráficos, para
+    # que uma busca nova não herde o recorte de período/seleção da busca anterior
+    # (ex.: slider preso em "até 2025" depois de uma busca que inclui 2026).
+    st.session_state["df_eua_busca_id"] = st.session_state.get("df_eua_busca_id", 0) + 1
 
 # --------------------------------------------------------------------
 # Cache da consulta à Census API (modo de transporte) -- evita rebuscar
@@ -1107,6 +1103,18 @@ if "df_eua_multi" in st.session_state:
             return f"{p} (até {ate_mes_ytd})"
         return str(p)
 
+    def nota_ano_em_andamento(periodos, mes=None, fonte=""):
+        """Aviso sob o gráfico quando o período selecionado inclui o ano em
+        andamento (Anual): diz até qual mês há dado. Só aparece se o recorte
+        escolhido no slider do gráfico realmente inclui esse ano."""
+        mes = mes or ate_mes_ytd
+        if (not monthly) and mes and str(ano_atual) in [str(p) for p in periodos]:
+            st.caption(
+                f"ℹ️ O período selecionado inclui {ano_atual}, ano em andamento: "
+                f"dados apenas até {mes}/{ano_atual}{fonte} (acumulado parcial, "
+                "não o ano completo)."
+            )
+
     if df_fonte is not None:
         periodo_cols = periodo_cols_de(df_fonte)
         label_cols = [c for c in df_fonte.columns if c not in periodo_cols]
@@ -1183,7 +1191,8 @@ if "df_eua_multi" in st.session_state:
         # combo_id identifica a combinação atual (métrica + HTS escolhido)
         # -- definido aqui, ANTES de qualquer "if via_col:"/"if country_col:",
         # para nunca dar erro quando um dos dois não existir nos dados.
-        combo_id = re.sub(r"\W+", "_", f"{metrica_grafico}_{hts_escolhido or 'total'}".lower())
+        busca_id = st.session_state.get("df_eua_busca_id", 0)
+        combo_id = re.sub(r"\W+", "_", f"{busca_id}_{metrica_grafico}_{hts_escolhido or 'total'}".lower())
 
         def legenda_unidade_hts():
             """Mostra, embaixo do título de cada gráfico, qual HTS está
@@ -1478,7 +1487,7 @@ if "df_eua_multi" in st.session_state:
                                     margin=dict(t=50, b=40, l=40, r=20),
                                     showlegend=False,
                                 )
-                                fig.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                fig.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 fig.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 chart_key = "via_chart_" + re.sub(r"\W+", "_", str(via).lower())
                                 st.plotly_chart(fig, use_container_width=True, key=chart_key)
@@ -1573,7 +1582,7 @@ if "df_eua_multi" in st.session_state:
                         ),
                         margin=dict(t=60, b=140, l=50, r=50),
                     )
-                    fig2.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    fig2.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
                     fig2.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                     st.plotly_chart(fig2, use_container_width=True, key=f"grafico2_combinado_{combo_id}")
             else:
@@ -1625,6 +1634,8 @@ if "df_eua_multi" in st.session_state:
                     periodo_visivel3 = periodo_cols[idx3_ini: idx3_fim + 1]
                 else:
                     periodo_visivel3 = periodo_cols
+
+                nota_ano_em_andamento(periodo_visivel3)
 
                 df_pais = (
                     df_fonte_grafico.groupby(country_col, as_index=False)[periodo_visivel3]
@@ -1763,6 +1774,8 @@ if "df_eua_multi" in st.session_state:
                     periodo_visivel4 = periodo_cols[idx4_ini: idx4_fim + 1]
                 else:
                     periodo_visivel4 = periodo_cols
+
+                nota_ano_em_andamento(periodo_visivel4)
 
                 ms_key4 = f"vias_grafico4_multiselect_{combo_id}"
                 reset_flag_key4 = f"vias_grafico4_reset_flag_{combo_id}"
@@ -2044,6 +2057,11 @@ if "df_eua_multi" in st.session_state:
                     else:
                         df_modal_visivel = df_modal
 
+                    nota_ano_em_andamento(
+                        df_modal_visivel["_periodo_label"].tolist(),
+                        mes=ate_mes_modal, fonte=" (Census)",
+                    )
+
                     cores_modal = {
                         "Valor Aereo": "#1CBE4F",
                         "Valor Maritimo": "#042373",
@@ -2160,7 +2178,7 @@ if "df_eua_multi" in st.session_state:
                                             # até o marcador invisível)
                             margin=dict(t=40, b=50, l=50, r=110),
                         )
-                        fig_modal.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                        fig_modal.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
                         fig_modal.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                         st.plotly_chart(fig_modal, use_container_width=True, key=f"grafico_modal_{combo_id}")
 
@@ -2198,6 +2216,8 @@ if "df_eua_multi" in st.session_state:
                     periodo_visivel5 = periodo_cols[idx5_ini: idx5_fim + 1]
                 else:
                     periodo_visivel5 = periodo_cols
+
+                nota_ano_em_andamento(periodo_visivel5)
 
                 df_pais5 = (
                     df_fonte_grafico.groupby(country_col, as_index=False)[periodo_visivel5]
@@ -2291,6 +2311,8 @@ if "df_eua_multi" in st.session_state:
                     periodo_visivel6 = periodo_cols[idx6_ini: idx6_fim + 1]
                 else:
                     periodo_visivel6 = periodo_cols
+
+                nota_ano_em_andamento(periodo_visivel6)
 
                 ms_key6 = f"vias_grafico6_multiselect_{combo_id}"
                 reset_flag_key6 = f"vias_grafico6_reset_flag_{combo_id}"
