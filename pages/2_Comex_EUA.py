@@ -43,6 +43,8 @@ MES_NUM_PT = {
     "Jul": 7, "Ago": 8, "Set": 9, "Out": 10, "Nov": 11, "Dez": 12,
 }
 MES_ABBR_PT_INV = {v: k for k, v in MES_NUM_PT.items()}
+EN_MESES = ["January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"]
 
 def periodo_label_para_data(label):
     """Converte 'Jan/2023' -> Timestamp(2023-01-01)."""
@@ -170,22 +172,39 @@ st.warning(
     "Consulta atual cobre apenas **Importações** (Import For Consumption), por código HTS. "
     "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb.  \n"
     "**Base de valor:** os valores em USD (*Customs Value*) seguem a base FAS, "
-    "equivalente a **FOB**, ou seja, sem frete, seguro nem tarifas de importação embutidos."
+    "equivalente a **FOB** — ou seja, sem frete, seguro nem tarifas de importação embutidos."
 )
 
 st.markdown("""
 ### Utilização do Aplicativo
 
-1. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule) - pontos são removidos automaticamente. Os filtros de país e via de entrada aparecem depois que o HTS é informado.
+1. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule), um por linha, e aplique com **Ctrl+Enter** - pontos são removidos automaticamente.
 2. Escolha a(s) métrica(s): **Valor** (USD) e/ou **Quantidade** (unidade do produto).
-3. Escolha o período: **Anual** ou **Mensal** (linha do tempo contínua).
-4. Opcionalmente, filtre por país(es) de origem e/ou via de entrada (porto/distrito aduaneiro) - as opções listam só o que tem comércio registrado para o(s) HTS informado(s).
+3. Escolha o período: **Anual** ou **Mensal** (linha do tempo contínua) e o **intervalo de anos**.
+4. Depois do HTS e do intervalo de anos, aparecem os filtros opcionais, em cascata: primeiro **país(es) de origem** e em seguida **via de entrada** (porto/distrito aduaneiro). Cada lista mostra só o que tem comércio registrado para o(s) HTS, os anos e os filtros anteriores.
 5. Clique em **Buscar dados** SEMPRE que quiser carregar ou atualizar as visualizações.
 """)
 
 # --------------------------------------------------------------------
 # Sidebar - filtros
 # --------------------------------------------------------------------
+# O Streamlit escreve "Press Ctrl+Enter to apply" dentro do campo de texto e não
+# permite trocar o texto por parâmetro. Aqui os <span> originais são escondidos e
+# a mensagem é escrita em português no mesmo lugar (mesma fonte/posição).
+st.sidebar.markdown(
+    """
+    <style>
+    [data-testid="stTextArea"] [data-testid="InputInstructions"] > span {
+        display: none !important;
+    }
+    [data-testid="stTextArea"] [data-testid="InputInstructions"]::after {
+        content: "Ctrl+Enter para aplicar";
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.sidebar.header("🔍 Filtros")
 
 hts_input = st.sidebar.text_area(
@@ -230,96 +249,116 @@ CENSUS_API_KEY = st.secrets.get("CENSUS_API_KEY")
 
 
 # --------------------------------------------------------------------
-# Descoberta das opções de país/via para o(s) HTS informado(s).
-# Faz duas consultas anuais leves ao DataWeb (uma quebrando só por país,
-# outra só por via), sobre TODO o histórico (2010 até hoje) -- assim as
-# opções não mudam quando o usuário mexe no slider de anos. Em cache,
-# então repetir o mesmo(s) HTS não gera nova chamada.
-# `_token` com underscore: o Streamlit não usa esse argumento na chave
-# do cache.
+# Opções dos filtros em cascata: HTS -> anos -> país -> via de entrada.
+# Cada lista vem de uma consulta anual leve ao DataWeb (quebrando só pela
+# dimensão pedida) e mostra apenas o que tem comércio registrado para o(s)
+# HTS, o intervalo de anos e -- no caso da via -- os países já escolhidos.
+# Se o intervalo inclui o ano em andamento, confere também os meses já
+# publicados dele (o consolidado anual desse ano vem zerado).
+# Em cache: repetir a mesma combinação não gera nova chamada. `_token` com
+# underscore: o Streamlit não usa esse argumento na chave do cache.
 # --------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
-def _descobrir_opcoes_hts(hts_tuple, _token, ano_inicio, ano_fim):
-    anos = [str(y) for y in range(ano_inicio, ano_fim + 1)]
+def _descobrir_opcoes(hts_tuple, ano_ini, ano_fim, paises_tuple, dimensao, _token):
+    """dimensao: "pais" -> países com comércio; "via" -> vias com comércio
+    (restritas aos países em paises_tuple, se houver)."""
+    anos = [str(y) for y in range(ano_ini, ano_fim + 1)]
+    if dimensao == "pais":
+        codigos, agg_pais, agg_via, paises_filtro = COUNTRY_CODES, False, True, []
+    else:
+        codigos, agg_pais, agg_via, paises_filtro = DISTRICT_CODES, True, False, list(paises_tuple)
 
-    def _valores_com_comercio(response, codigos_validos):
-        df_d = parse_report(response, measure_num=0)
-        cols_ano = [c for c in anos if c in df_d.columns]
-        for c in cols_ano:
+    def _consulta(anos_q, mensal):
+        q = build_import_query(
+            hts_codes=list(hts_tuple), years=anos_q, countries=paises_filtro,
+            aggregate_commodities=False, aggregate_countries=agg_pais,
+            measures=["CONS_CUSTOMS_VALUE"], monthly=mensal,
+            districts=[], aggregate_districts=agg_via,
+        )
+        df_d = parse_report(run_report(q, _token), measure_num=0)
+        cols_dado = [c for c in (EN_MESES if mensal else anos_q) if c in df_d.columns]
+        for c in cols_dado:
             df_d[c] = pd.to_numeric(
                 df_d[c].astype(str).str.replace(",", "", regex=False).str.strip(),
                 errors="coerce",
             ).fillna(0)
-        if cols_ano:
-            df_d = df_d[df_d[cols_ano].sum(axis=1) > 0]
+        if cols_dado:
+            df_d = df_d[df_d[cols_dado].sum(axis=1) > 0]
         for c in df_d.columns:
-            if c in cols_ano:
+            if c in cols_dado or c == "Year":
                 continue
             valores = df_d[c].dropna().astype(str)
-            if len(valores) and valores.isin(codigos_validos.keys()).mean() >= 0.5:
-                return {v for v in valores.unique() if v in codigos_validos}
+            if len(valores) and valores.isin(codigos.keys()).mean() >= 0.5:
+                return {v for v in valores.unique() if v in codigos}
         return set()
 
-    q_paises = build_import_query(
-        hts_codes=list(hts_tuple), years=anos, countries=[],
-        aggregate_commodities=False, aggregate_countries=False,
-        measures=["CONS_CUSTOMS_VALUE"], monthly=False,
-        districts=[], aggregate_districts=True,
-    )
-    paises = _valores_com_comercio(run_report(q_paises, _token), COUNTRY_CODES)
-
-    q_vias = build_import_query(
-        hts_codes=list(hts_tuple), years=anos, countries=[],
-        aggregate_commodities=False, aggregate_countries=True,
-        measures=["CONS_CUSTOMS_VALUE"], monthly=False,
-        districts=[], aggregate_districts=False,
-    )
-    vias = _valores_com_comercio(run_report(q_vias, _token), DISTRICT_CODES)
-
-    return sorted(paises), sorted(vias)
+    achados = _consulta(anos, False)
+    if ano_fim == ano_atual:
+        achados |= _consulta([str(ano_atual)], True)
+    return sorted(achados)
 
 
-# Os filtros de país e via só aparecem depois que o usuário informa um HTS.
+def _listar_opcoes(hts_t, paises_t, dimensao, rotulo_spinner):
+    """Retorna (opções, falhou). Em caso de falha devolve a lista completa."""
+    completo = sorted(COUNTRY_CODES.keys() if dimensao == "pais" else DISTRICT_CODES.keys())
+    if not TOKEN:
+        return completo, True
+    with st.sidebar:
+        with st.spinner(rotulo_spinner):
+            try:
+                return _descobrir_opcoes(hts_t, year_start, year_end, paises_t, dimensao, TOKEN), False
+            except Exception:
+                return completo, True
+
+
+# Os filtros só aparecem depois que o usuário informa um HTS, um a um:
+# país de origem -> via de entrada (cada um filtra as opções do seguinte).
 countries = []
 districts = []
 if hts_codes:
-    opcoes_paises, opcoes_vias, falhou_descoberta = None, None, False
-    if TOKEN:
-        with st.sidebar:
-            with st.spinner("Buscando países e vias de entrada do(s) HTS..."):
-                try:
-                    opcoes_paises, opcoes_vias = _descobrir_opcoes_hts(
-                        tuple(hts_codes), TOKEN, 2010, ano_atual
-                    )
-                except Exception:
-                    falhou_descoberta = True
-    else:
-        falhou_descoberta = True
+    hts_t = tuple(hts_codes)
 
-    if falhou_descoberta:
+    paises_opcoes, falhou_p = _listar_opcoes(
+        hts_t, (), "pais", "Buscando os países de origem..."
+    )
+    if falhou_p:
         st.sidebar.caption(
-            "⚠️ Não foi possível listar os países e vias deste(s) HTS agora "
+            "⚠️ Não foi possível listar os países deste(s) HTS agora "
             "(confira o código informado). Exibindo todas as opções."
         )
-        opcoes_paises = sorted(COUNTRY_CODES.keys())
-        opcoes_vias = sorted(DISTRICT_CODES.keys())
 
-    if not opcoes_paises and not opcoes_vias:
+    if not paises_opcoes:
         st.sidebar.info(
-            "Nenhum país ou via de entrada com comércio registrado para "
-            "esse(s) HTS -- confira os códigos informados."
+            "Nenhum país de origem com comércio registrado para esse(s) HTS "
+            "no intervalo de anos selecionado."
         )
     else:
         countries = st.sidebar.multiselect(
             "Países de origem (opcional - vazio = todos)",
-            options=opcoes_paises,
+            options=paises_opcoes,
             default=[],
         )
-        districts = st.sidebar.multiselect(
-            "Via de entrada / distrito aduaneiro (opcional - vazio = todos)",
-            options=opcoes_vias,
-            default=[],
+
+        vias_opcoes, falhou_v = _listar_opcoes(
+            hts_t, tuple(sorted(countries)), "via", "Buscando as vias de entrada..."
         )
+        if falhou_v:
+            st.sidebar.caption(
+                "⚠️ Não foi possível listar as vias deste(s) HTS agora. "
+                "Exibindo todas as opções."
+            )
+
+        if not vias_opcoes:
+            st.sidebar.info(
+                "Nenhuma via de entrada com comércio registrado para esse(s) "
+                "HTS, anos e países selecionados."
+            )
+        else:
+            districts = st.sidebar.multiselect(
+                "Via de entrada / distrito aduaneiro (opcional - vazio = todos)",
+                options=vias_opcoes,
+                default=[],
+            )
 
 buscar = st.sidebar.button(
     "Buscar dados",
@@ -329,10 +368,6 @@ buscar = st.sidebar.button(
 # --------------------------------------------------------------------
 # Ano corrente no modo Anual (acumulado do ano até o último mês publicado)
 # --------------------------------------------------------------------
-EN_MESES = ["January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"]
-
-
 def _buscar_ytd_ano_corrente(hts_codes_, countries_, districts_, measures_, token_):
     """Consulta MENSAL só do ano corrente e soma os meses já publicados.
     Retorna ({label da medida: DataFrame ids + _YTD}, {label: 'Jul'})."""
