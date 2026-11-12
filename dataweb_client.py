@@ -531,6 +531,111 @@ def build_import_query(
 
 
 # --------------------------------------------------------------------------
+# 1b. Query de EXPORTAÇÃO
+# --------------------------------------------------------------------------
+# Valores de tradeType e nomes de medida conferidos a partir de consultas
+# reais copiadas do site do DataWeb (aba Network -> runReport):
+#   - "Export"  -> Domestic Exports (exportações domésticas)
+#   - "TotExp"  -> Total Exports (domésticas + reexportações)
+#   - medidas: "FAS_VALUE" (valor FAS, em dólares) e
+#              "FIRST_UNIT_QUANTITY" (quantidade na 1a unidade de medida)
+# Exportação usa a classificação Schedule B; não existe nível oficial de 8
+# ou 10 dígitos -- o máximo confiável é HTS-6 (os 6 primeiros dígitos
+# coincidem com o HS).
+EXPORT_TRADE_TYPES = {
+    "Doméstica": "Export",
+    "Total": "TotExp",
+}
+EXPORT_MEASURES = ("FAS_VALUE", "FIRST_UNIT_QUANTITY")
+EXPORT_GRANULARITY = "6"
+
+
+def truncate_hts_for_export(hts_codes: list[str]) -> list[str]:
+    """
+    Reduz códigos HTS para no máximo 6 dígitos (nível oficial das
+    exportações), removendo duplicatas e preservando a ordem.
+    """
+    vistos: list[str] = []
+    for code in hts_codes:
+        curto = code[: int(EXPORT_GRANULARITY)]
+        if curto not in vistos:
+            vistos.append(curto)
+    return vistos
+
+
+def build_export_query(
+    hts_codes: list[str],
+    years: list[str],
+    export_type: str = "Export",
+    countries: Optional[list[str]] = None,
+    aggregate_commodities: bool = False,
+    aggregate_countries: bool = True,
+    measures: Optional[list[str]] = None,
+    monthly: bool = False,
+    districts: Optional[list[str]] = None,
+    aggregate_districts: bool = True,
+) -> dict:
+    """
+    Monta o payload do runReport para consultas de EXPORTAÇÃO por código
+    HTS (até 6 dígitos).
+
+    Reaproveita build_import_query (mesma estrutura de anos, países,
+    distritos e agregações) e só sobrescreve o que muda na exportação.
+    A consulta de importação não é alterada.
+
+    Parameters
+    ----------
+    export_type : "Export" (domésticas) ou "TotExp" (totais). Também
+        aceita as chaves de EXPORT_TRADE_TYPES ("Doméstica" / "Total").
+    measures : "FAS_VALUE" e/ou "FIRST_UNIT_QUANTITY".
+        Default: ["FAS_VALUE"].
+    Demais parâmetros: iguais aos de build_import_query.
+    """
+    export_type = EXPORT_TRADE_TYPES.get(export_type, export_type)
+    if export_type not in EXPORT_TRADE_TYPES.values():
+        raise ValueError(
+            f"export_type inválido: {export_type!r} "
+            f"(use 'Export' ou 'TotExp')."
+        )
+
+    # Garante HTS-6 (8/10 dígitos não existem em exportação).
+    hts_codes = truncate_hts_for_export(hts_codes)
+
+    query = build_import_query(
+        hts_codes=hts_codes,
+        years=years,
+        countries=countries,
+        aggregate_commodities=aggregate_commodities,
+        aggregate_countries=aggregate_countries,
+        granularity=EXPORT_GRANULARITY,
+        measures=measures or [EXPORT_MEASURES[0]],
+        monthly=monthly,
+        districts=districts,
+        aggregate_districts=aggregate_districts,
+    )
+
+    query["reportOptions"]["tradeType"] = export_type
+    query["runMonthly"] = False  # mesmo valor do payload gerado pelo site
+
+    commodities = query["searchOptions"]["commodities"]
+    commodities["searchGranularity"] = None
+    commodities["groupGranularity"] = None
+
+    # Blocos específicos de importação: no payload de exportação do site
+    # os programas vêm sem agregação e as provisões como "all".
+    misc = query["searchOptions"]["MiscGroup"]
+    misc["importPrograms"] = {
+        "aggregation": None,
+        "importPrograms": [],
+        "programsSelectType": "all",
+    }
+    misc["provisionCodes"]["rateProvisionCodesExpanded"] = [
+        {"name": "All Rate Provision Codes", "value": "all"}
+    ]
+    return query
+
+
+# --------------------------------------------------------------------------
 # 2. Chamada à API
 # --------------------------------------------------------------------------
 
