@@ -16,6 +16,9 @@ from statsforecast.models import ETS
 
 from dataweb_client import (
     build_import_query,
+    build_export_query,
+    truncate_hts_for_export,
+    EXPORT_TRADE_TYPES,
     run_report,
     parse_report,
     get_table_label,
@@ -34,6 +37,14 @@ TABLE_LABEL_PT = {
 
 def label_pt(label_original: str) -> str:
     return TABLE_LABEL_PT.get(label_original, label_original)
+
+# Na exportação o DataWeb chama a medida de valor de "FAS Value" (na
+# importação é "Customs Value"). O resto da página usa as chaves da
+# importação, então os rótulos de exportação são convertidos para elas.
+LABEL_EXPORT_PARA_CANONICO = {"FAS Value": "Customs Value"}
+
+def label_canonico(label: str) -> str:
+    return LABEL_EXPORT_PARA_CANONICO.get(label, label)
 
 # --------------------------------------------------------------------
 # Projeção (ETS) -- portada da mesma lógica usada no dash Brasil.
@@ -157,33 +168,88 @@ def forecast_ets_mnm_robust(df, date_col, h=6, constant=1e-6, max_retries=2):
 
 st.set_page_config(page_title="Comex EUA", page_icon="🌍", layout="wide")
 
+# --------------------------------------------------------------------
+# Fluxo: Importação ou Exportação. Todo o resto da página segue o fluxo
+# escolhido. `tx()` ajusta a terminologia (origem/destino, entrada/saída,
+# importado/exportado) e não altera nada no modo Importação.
+# --------------------------------------------------------------------
+st.sidebar.header("🔍 Filtros")
+fluxo = st.sidebar.radio("Fluxo", ["Importação", "Exportação"], horizontal=True, key="fluxo_comercio")
+eh_export = fluxo == "Exportação"
+tipo_export_label = "Doméstica"
+if eh_export:
+    tipo_export_label = st.sidebar.radio(
+        "Tipo de exportação",
+        list(EXPORT_TRADE_TYPES.keys()),
+        horizontal=True,
+        key="tipo_exportacao",
+        help=(
+            "**Doméstica:** bens produzidos nos EUA. "
+            "**Total:** doméstica + reexportações (mercadoria estrangeira "
+            "importada e reexportada sem transformação relevante)."
+        ),
+    )
+tipo_export = EXPORT_TRADE_TYPES[tipo_export_label]
+
+_TERMOS_EXPORT = [
+    ("Vias de Entrada", "Vias de Saída"), ("Via de Entrada", "Via de Saída"),
+    ("Vias de entrada", "Vias de saída"), ("Via de entrada", "Via de saída"),
+    ("vias de entrada", "vias de saída"), ("via de entrada", "via de saída"),
+    ("Importações", "Exportações"), ("importações", "exportações"),
+    ("Importado", "Exportado"), ("importado", "exportado"),
+    ("Origem", "Destino"), ("origem", "destino"),
+]
+
+def tx(texto):
+    """Troca a terminologia de importação pela de exportação (só no modo
+    Exportação; no modo Importação devolve o texto sem alteração)."""
+    if not eh_export:
+        return texto
+    for de, para in _TERMOS_EXPORT:
+        texto = texto.replace(de, para)
+    return texto
+
 st.markdown(
-    """
+    f"""
     <h1 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-        Dashboard COMEX Importações - EUA
+        Dashboard COMEX {"Exportações" if eh_export else "Importações"} - EUA
     </h1>
     """,
     unsafe_allow_html=True,
 )
 
-st.warning(
-    "**Fontes:** USITC DataWeb e Census Bureau International Trade API "
-    "(dados oficiais de comércio exterior dos EUA). "
-    "Consulta atual cobre apenas **Importações** (Import For Consumption), por código HTS. "
-    "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb.  \n"
-    "**Base de valor:** os valores em USD (*Customs Value*) seguem a base FAS, "
-    "equivalente a **FOB** - ou seja, sem frete, seguro nem tarifas de importação embutidos."
-)
+if eh_export:
+    st.warning(
+        "**Fontes:** USITC DataWeb (dados oficiais de comércio exterior dos EUA). "
+        f"Consulta de **Exportações {tipo_export_label.lower()}s** "
+        + ("(*Domestic Exports*: bens produzidos nos EUA)" if tipo_export == "Export"
+           else "(*Total Exports*: domésticas + reexportações)")
+        + ", por código HTS de até **6 dígitos** (exportações não têm nível oficial de 8 ou 10 dígitos; "
+        "códigos maiores são reduzidos automaticamente aos 6 primeiros).  \n"
+        "**Base de valor:** os valores em USD (*FAS Value*) são *Free Alongside Ship*: "
+        "valor da mercadoria no porto de embarque nos EUA, sem frete nem seguro internacionais.  \n"
+        "O gráfico de Modal de Transporte (Census API) ainda não está disponível para Exportações."
+    )
+else:
+    st.warning(
+        "**Fontes:** USITC DataWeb e Census Bureau International Trade API "
+        "(dados oficiais de comércio exterior dos EUA). "
+        "Consulta cobre **Importações** (Import For Consumption), por código HTS. "
+        "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb.  \n"
+        "**Base de valor:** os valores em USD (*Customs Value*) seguem a base FAS, "
+        "equivalente a **FOB** - ou seja, sem frete, seguro nem tarifas de importação embutidos."
+    )
 
-st.markdown("""
+st.markdown(tx("""
 ### Utilização do Aplicativo
 
+0. Escolha o **Fluxo** na barra lateral: **Importação** ou **Exportação** (doméstica ou total).
 1. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule), um por linha, e aplique com **Ctrl+Enter** - pontos são removidos automaticamente.
 2. Escolha a(s) métrica(s): **Valor** (USD) e/ou **Quantidade** (unidade do produto).
 3. Escolha o período: **Anual** ou **Mensal** (linha do tempo contínua) e o **intervalo de anos**.
 4. Depois do HTS e do intervalo de anos, aparecem os filtros opcionais, em cascata: primeiro **país(es) de origem** e em seguida **via de entrada** (porto/distrito aduaneiro). Cada lista mostra só o que tem comércio registrado para o(s) HTS, os anos e os filtros anteriores.
 5. Clique em **Buscar dados** SEMPRE que quiser carregar ou atualizar as visualizações.
-""")
+"""))
 
 # --------------------------------------------------------------------
 # Sidebar - filtros
@@ -205,8 +271,6 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-st.sidebar.header("🔍 Filtros")
-
 hts_input = st.sidebar.text_area(
     "Códigos HTS (um por linha)",
     value="",
@@ -219,6 +283,14 @@ hts_input = st.sidebar.text_area(
 _raw_lines = [c.strip() for c in hts_input.splitlines() if c.strip()]
 hts_codes = [re.sub(r"[^0-9]", "", line) for line in _raw_lines]
 hts_codes = [c for c in hts_codes if c]
+if eh_export:
+    _hts_originais = list(hts_codes)
+    hts_codes = truncate_hts_for_export(hts_codes)
+    if hts_codes != _hts_originais:
+        st.sidebar.caption(
+            "ℹ️ Exportações só têm detalhamento oficial até **6 dígitos**: "
+            "HTS maiores foram reduzidos aos 6 primeiros (" + ", ".join(hts_codes) + ")."
+        )
 
 aggregate_commodities = False  # sempre desagregado -- ver "Totais por HTS" na tabela
 
@@ -259,7 +331,8 @@ CENSUS_API_KEY = st.secrets.get("CENSUS_API_KEY")
 # underscore: o Streamlit não usa esse argumento na chave do cache.
 # --------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
-def _descobrir_opcoes(hts_tuple, ano_ini, ano_fim, paises_tuple, dimensao, _token):
+def _descobrir_opcoes(hts_tuple, ano_ini, ano_fim, paises_tuple, dimensao, _token,
+                      fluxo_="Importação", tipo_export_=None):
     """dimensao: "pais" -> países com comércio; "via" -> vias com comércio
     (restritas aos países em paises_tuple, se houver)."""
     anos = [str(y) for y in range(ano_ini, ano_fim + 1)]
@@ -269,12 +342,20 @@ def _descobrir_opcoes(hts_tuple, ano_ini, ano_fim, paises_tuple, dimensao, _toke
         codigos, agg_pais, agg_via, paises_filtro = DISTRICT_CODES, True, False, list(paises_tuple)
 
     def _consulta(anos_q, mensal):
-        q = build_import_query(
-            hts_codes=list(hts_tuple), years=anos_q, countries=paises_filtro,
-            aggregate_commodities=False, aggregate_countries=agg_pais,
-            measures=["CONS_CUSTOMS_VALUE"], monthly=mensal,
-            districts=[], aggregate_districts=agg_via,
-        )
+        if fluxo_ == "Exportação":
+            q = build_export_query(
+                hts_codes=list(hts_tuple), years=anos_q, export_type=tipo_export_,
+                countries=paises_filtro, aggregate_commodities=False,
+                aggregate_countries=agg_pais, measures=["FAS_VALUE"],
+                monthly=mensal, districts=[], aggregate_districts=agg_via,
+            )
+        else:
+            q = build_import_query(
+                hts_codes=list(hts_tuple), years=anos_q, countries=paises_filtro,
+                aggregate_commodities=False, aggregate_countries=agg_pais,
+                measures=["CONS_CUSTOMS_VALUE"], monthly=mensal,
+                districts=[], aggregate_districts=agg_via,
+            )
         df_d = parse_report(run_report(q, _token), measure_num=0)
         cols_dado = [c for c in (EN_MESES if mensal else anos_q) if c in df_d.columns]
         for c in cols_dado:
@@ -306,7 +387,10 @@ def _listar_opcoes(hts_t, paises_t, dimensao, rotulo_spinner):
     with st.sidebar:
         with st.spinner(rotulo_spinner):
             try:
-                return _descobrir_opcoes(hts_t, year_start, year_end, paises_t, dimensao, TOKEN), False
+                return _descobrir_opcoes(
+                    hts_t, year_start, year_end, paises_t, dimensao, TOKEN,
+                    fluxo, tipo_export if eh_export else None,
+                ), False
             except Exception:
                 return completo, True
 
@@ -319,7 +403,7 @@ if hts_codes:
     hts_t = tuple(hts_codes)
 
     paises_opcoes, falhou_p = _listar_opcoes(
-        hts_t, (), "pais", "Buscando os países de origem..."
+        hts_t, (), "pais", tx("Buscando os países de origem...")
     )
     if falhou_p:
         st.sidebar.caption(
@@ -329,18 +413,18 @@ if hts_codes:
 
     if not paises_opcoes:
         st.sidebar.info(
-            "Nenhum país de origem com comércio registrado para esse(s) HTS "
-            "no intervalo de anos selecionado."
+            tx("Nenhum país de origem com comércio registrado para esse(s) HTS "
+               "no intervalo de anos selecionado.")
         )
     else:
         countries = st.sidebar.multiselect(
-            "Países de origem (opcional - vazio = todos)",
+            tx("Países de origem (opcional - vazio = todos)"),
             options=paises_opcoes,
             default=[],
         )
 
         vias_opcoes, falhou_v = _listar_opcoes(
-            hts_t, tuple(sorted(countries)), "via", "Buscando as vias de entrada..."
+            hts_t, tuple(sorted(countries)), "via", tx("Buscando as vias de entrada...")
         )
         if falhou_v:
             st.sidebar.caption(
@@ -350,12 +434,12 @@ if hts_codes:
 
         if not vias_opcoes:
             st.sidebar.info(
-                "Nenhuma via de entrada com comércio registrado para esse(s) "
-                "HTS, anos e países selecionados."
+                tx("Nenhuma via de entrada com comércio registrado para esse(s) "
+                   "HTS, anos e países selecionados.")
             )
         else:
             districts = st.sidebar.multiselect(
-                "Via de entrada / distrito aduaneiro (opcional - vazio = todos)",
+                tx("Via de entrada / distrito aduaneiro (opcional - vazio = todos)"),
                 options=vias_opcoes,
                 default=[],
             )
@@ -377,17 +461,25 @@ def _buscar_ytd_ano_corrente(hts_codes_, countries_, districts_, measures_, toke
         return {}, {}  # janeiro: ainda não há mês fechado do ano corrente
     n_max = ultimo_mes_completo_.month
 
-    query_m = build_import_query(
-        hts_codes=hts_codes_, years=[str(ano_atual)], countries=countries_,
-        aggregate_commodities=False, aggregate_countries=False,
-        measures=measures_, monthly=True, districts=districts_,
-        aggregate_districts=False,
-    )
+    if eh_export:
+        query_m = build_export_query(
+            hts_codes=hts_codes_, years=[str(ano_atual)], export_type=tipo_export,
+            countries=countries_, aggregate_commodities=False,
+            aggregate_countries=False, measures=measures_, monthly=True,
+            districts=districts_, aggregate_districts=False,
+        )
+    else:
+        query_m = build_import_query(
+            hts_codes=hts_codes_, years=[str(ano_atual)], countries=countries_,
+            aggregate_commodities=False, aggregate_countries=False,
+            measures=measures_, monthly=True, districts=districts_,
+            aggregate_districts=False,
+        )
     resp_m = run_report(query_m, token_)
 
     dfs_ytd, ate_mes = {}, {}
     for i in range(num_tables(resp_m)):
-        label_m = get_table_label(resp_m, measure_num=i)
+        label_m = label_canonico(get_table_label(resp_m, measure_num=i))
         d = parse_report(resp_m, measure_num=i)
         meses = [m for m in EN_MESES[:n_max] if m in d.columns]
         if not meses:
@@ -454,9 +546,9 @@ if buscar:
 
     measures = []
     if metrica_valor:
-        measures.append("CONS_CUSTOMS_VALUE")
+        measures.append("FAS_VALUE" if eh_export else "CONS_CUSTOMS_VALUE")
     if metrica_quantidade:
-        measures.append("CONS_FIR_UNIT_QUANT")
+        measures.append("FIRST_UNIT_QUANTITY" if eh_export else "CONS_FIR_UNIT_QUANT")
     if not measures:
         st.warning("Selecione ao menos uma métrica (Valor e/ou Quantidade).")
         st.stop()
@@ -476,17 +568,31 @@ if buscar:
     years_query = [str(y) for y in range(year_start_query, year_end + 1)]
 
     with st.spinner("Consultando USITC DataWeb..."):
-        query = build_import_query(
-            hts_codes=hts_codes,
-            years=years_query,
-            countries=countries,
-            aggregate_commodities=aggregate_commodities,
-            aggregate_countries=aggregate_countries,
-            measures=measures,
-            monthly=monthly,
-            districts=districts,
-            aggregate_districts=aggregate_districts,
-        )
+        if eh_export:
+            query = build_export_query(
+                hts_codes=hts_codes,
+                years=years_query,
+                export_type=tipo_export,
+                countries=countries,
+                aggregate_commodities=aggregate_commodities,
+                aggregate_countries=aggregate_countries,
+                measures=measures,
+                monthly=monthly,
+                districts=districts,
+                aggregate_districts=aggregate_districts,
+            )
+        else:
+            query = build_import_query(
+                hts_codes=hts_codes,
+                years=years_query,
+                countries=countries,
+                aggregate_commodities=aggregate_commodities,
+                aggregate_countries=aggregate_countries,
+                measures=measures,
+                monthly=monthly,
+                districts=districts,
+                aggregate_districts=aggregate_districts,
+            )
         try:
             response = run_report(query, TOKEN)
         except Exception as e:
@@ -512,7 +618,7 @@ if buscar:
         dfs_por_medida_full = {}  # versão com o histórico extra, só para a projeção
         try:
             for i in range(num_tables(response)):
-                label = get_table_label(response, measure_num=i)
+                label = label_canonico(get_table_label(response, measure_num=i))
                 df_i = parse_report(response, measure_num=i)
 
                 # Colunas de dado (ano ou mês) vêm como texto -- converte
@@ -615,6 +721,7 @@ if buscar:
     st.session_state["df_eua_years"] = years
     st.session_state["df_eua_ytd_mes"] = ytd_ate_mes
     st.session_state["df_eua_hts"] = hts_codes
+    st.session_state["df_eua_fluxo"] = fluxo
     # Identifica a busca: entra na chave dos sliders/multiselects dos gráficos, para
     # que uma busca nova não herde o recorte de período/seleção da busca anterior
     # (ex.: slider preso em "até 2025" depois de uma busca que inclui 2026).
@@ -664,6 +771,14 @@ if "df_eua_multi" in st.session_state:
     # Os resultados exibidos pertencem ao(s) HTS da última busca -- não ao que
     # está digitado agora na barra lateral (que pode já ter sido alterado).
     hts_codes = st.session_state.get("df_eua_hts", hts_codes)
+    # Terminologia e regras da exibição seguem o fluxo da última BUSCA (não o
+    # seletor atual da barra lateral, que pode ter mudado sem nova busca).
+    eh_export = st.session_state.get("df_eua_fluxo", fluxo) == "Exportação"
+    if eh_export != (fluxo == "Exportação"):
+        st.info(
+            "O fluxo selecionado na barra lateral mudou desde a última busca. "
+            "Clique em **Buscar dados** para atualizar os resultados."
+        )
 
     def periodo_cols_de(df):
         if monthly:
@@ -1004,7 +1119,7 @@ if "df_eua_multi" in st.session_state:
                     "Data": st.column_config.DateColumn(format=formato_data),
                 },
             )
-            st.markdown("**Detalhe (por HTS e Via de Entrada)**")
+            st.markdown(tx("**Detalhe (por HTS e Via de Entrada)**"))
 
         st.success(f"{len(df_exibicao)} linha(s) retornada(s).")
         st.dataframe(
@@ -1220,9 +1335,9 @@ if "df_eua_multi" in st.session_state:
                 )
 
         titulo_grafico1 = (
-            f"Volume Importado em {metrica_grafico}: Realizado vs Projetado"
+            tx(f"Volume Importado em {metrica_grafico}: Realizado vs Projetado")
             if monthly else
-            f"Volume Importado em {metrica_grafico}: Realizado"
+            tx(f"Volume Importado em {metrica_grafico}: Realizado")
         )
         st.markdown(
             f"""
@@ -1304,14 +1419,14 @@ if "df_eua_multi" in st.session_state:
 
                 col_label, col_btn = st.columns([5, 1])
                 with col_label:
-                    st.markdown("**Vias de Entrada exibidas**")
+                    st.markdown(tx("**Vias de Entrada exibidas**"))
                 with col_btn:
                     if st.button("🔝 Restaurar Top 5", key=f"vias_grafico_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key] = True
                         st.rerun()
 
                 vias_selecionadas = st.multiselect(
-                    "Vias de Entrada exibidas",
+                    tx("Vias de Entrada exibidas"),
                     options=todas_vias_alfa,
                     default=top5_default,
                     key=ms_key,
@@ -1319,7 +1434,7 @@ if "df_eua_multi" in st.session_state:
                 )
 
                 if not vias_selecionadas:
-                    st.info("Selecione ao menos uma via de entrada para exibir os gráficos.")
+                    st.info(tx("Selecione ao menos uma via de entrada para exibir os gráficos."))
                 else:
                     # Projeção só faz sentido no Mensal, e só quando a
                     # janela visível vai até o último período real
@@ -1447,8 +1562,8 @@ if "df_eua_multi" in st.session_state:
 
                     if not vias_com_conteudo:
                         st.info(
-                            "Nenhuma das vias de entrada selecionadas tem dado "
-                            "(real ou projetado) no período visível."
+                            tx("Nenhuma das vias de entrada selecionadas tem dado "
+                            "(real ou projetado) no período visível.")
                         )
 
                     cols_por_linha = 2
@@ -1498,11 +1613,11 @@ if "df_eua_multi" in st.session_state:
                 # ------------------------------------------------------
                 st.divider()
                 st.markdown(
-                    f"""
+                    tx(f"""
                     <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
                         Volume total transacionado em {metrica_grafico} (Realizado) por Via de Entrada
                     </h2>
-                    """,
+                    """),
                     unsafe_allow_html=True,
                 )
                 legenda_unidade_hts()
@@ -1531,14 +1646,14 @@ if "df_eua_multi" in st.session_state:
 
                 col_label2, col_btn2 = st.columns([5, 1])
                 with col_label2:
-                    st.markdown("**Vias de Entrada exibidas**")
+                    st.markdown(tx("**Vias de Entrada exibidas**"))
                 with col_btn2:
                     if st.button("🔝 Restaurar Top 5", key=f"vias_grafico2_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key2] = True
                         st.rerun()
 
                 vias_selecionadas2 = st.multiselect(
-                    "Vias de Entrada exibidas neste gráfico",
+                    tx("Vias de Entrada exibidas neste gráfico"),
                     options=todas_vias_alfa,
                     default=top5_default,
                     key=ms_key2,
@@ -1546,12 +1661,12 @@ if "df_eua_multi" in st.session_state:
                     max_selections=MAX_VIAS_GRAFICO2,
                 )
                 st.caption(
-                    f"Máximo de {MAX_VIAS_GRAFICO2} vias de entrada por vez neste gráfico, "
-                    "para manter as cores e a leitura claras."
+                    tx(f"Máximo de {MAX_VIAS_GRAFICO2} vias de entrada por vez neste gráfico, "
+                    "para manter as cores e a leitura claras.")
                 )
 
                 if not vias_selecionadas2:
-                    st.info("Selecione ao menos uma via de entrada para exibir o gráfico.")
+                    st.info(tx("Selecione ao menos uma via de entrada para exibir o gráfico."))
                 else:
                     paleta = pcolors.qualitative.Alphabet
                     fig2 = go.Figure()
@@ -1574,7 +1689,7 @@ if "df_eua_multi" in st.session_state:
                         plot_bgcolor="#DBF7FF",
                         paper_bgcolor="white",
                         height=600,
-                        legend_title="Via de Entrada",
+                        legend_title=tx("Via de Entrada"),
                         legend=dict(
                             orientation="h", yanchor="top", y=-0.2,
                             xanchor="center", x=0.5,
@@ -1587,13 +1702,13 @@ if "df_eua_multi" in st.session_state:
                     st.plotly_chart(fig2, use_container_width=True, key=f"grafico2_combinado_{combo_id}")
             else:
                 st.info(
-                    "Nenhuma quebra por via de entrada nos dados retornados para "
+                    tx("Nenhuma quebra por via de entrada nos dados retornados para "
                     "esta consulta -- isso costuma acontecer quando os filtros "
                     "aplicados (país, HTS ou via de entrada) resultam em uma única via "
                     "de entrada, ou "
                     "quando nenhuma via de entrada específica foi selecionada e "
                     "há poucos registros no período. Tente ampliar o intervalo "
-                    "de anos ou os países/HTS selecionados."
+                    "de anos ou os países/HTS selecionados.")
                 )
 
             # ------------------------------------------------------------
@@ -1602,11 +1717,11 @@ if "df_eua_multi" in st.session_state:
             # ------------------------------------------------------------
             st.divider()
             st.markdown(
-                f"""
+                tx(f"""
                 <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
                     Porcentagem por País de {metrica_grafico} (Realizado) Importado
                 </h2>
-                """,
+                """),
                 unsafe_allow_html=True,
             )
             legenda_unidade_hts()
@@ -1719,7 +1834,7 @@ if "df_eua_multi" in st.session_state:
                             )
                         )
                         fig3.update_layout(
-                            xaxis_title="% do total importado",
+                            xaxis_title=tx("% do total importado"),
                             xaxis=dict(range=[0, max(percentuais_h) * 1.2]),
                             yaxis_title="País",
                             yaxis=dict(categoryorder="array", categoryarray=labels_h),
@@ -1736,12 +1851,12 @@ if "df_eua_multi" in st.session_state:
                     st.info("Sem valores no período selecionado para calcular percentuais.")
             else:
                 st.info(
-                    "Nenhuma quebra por país nos dados retornados para esta "
+                    tx("Nenhuma quebra por país nos dados retornados para esta "
                     "consulta -- isso costuma acontecer quando apenas um país "
                     "foi selecionado no filtro (não há o que separar) ou quando "
                     "há poucos registros no período. Selecione mais de um país "
                     "de origem, ou deixe o filtro vazio para trazer todos, e "
-                    "tente novamente."
+                    "tente novamente.")
                 )
 
             # ------------------------------------------------------------
@@ -1751,11 +1866,11 @@ if "df_eua_multi" in st.session_state:
             # ------------------------------------------------------------
             st.divider()
             st.markdown(
-                f"""
+                tx(f"""
                 <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
                     Porcentagem por País de {metrica_grafico} (Realizado) Importado Separado por Via de Entrada
                 </h2>
-                """,
+                """),
                 unsafe_allow_html=True,
             )
             legenda_unidade_hts()
@@ -1785,24 +1900,24 @@ if "df_eua_multi" in st.session_state:
 
                 col_label4, col_btn4 = st.columns([5, 1])
                 with col_label4:
-                    st.markdown("**Vias de Entrada exibidas (cada uma vira um mini-gráfico)**")
+                    st.markdown(tx("**Vias de Entrada exibidas (cada uma vira um mini-gráfico)**"))
                 with col_btn4:
                     if st.button("🔝 Restaurar Top 5", key=f"vias_grafico4_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key4] = True
                         st.rerun()
 
                 vias_selecionadas4 = st.multiselect(
-                    "Vias de Entrada exibidas neste gráfico",
+                    tx("Vias de Entrada exibidas neste gráfico"),
                     options=todas_vias_alfa,
                     default=top5_default,
                     key=ms_key4,
                     label_visibility="collapsed",
                     max_selections=8,
                 )
-                st.caption("Máximo de 8 vias de entrada por vez (cada uma gera um mini-gráfico).")
+                st.caption(tx("Máximo de 8 vias de entrada por vez (cada uma gera um mini-gráfico)."))
 
                 if not vias_selecionadas4:
-                    st.info("Selecione ao menos uma via de entrada para exibir os gráficos.")
+                    st.info(tx("Selecione ao menos uma via de entrada para exibir os gráficos."))
                 else:
                     paleta4 = pcolors.qualitative.Alphabet
                     cols_por_linha4 = 2
@@ -1810,7 +1925,7 @@ if "df_eua_multi" in st.session_state:
                         cols4 = st.columns(cols_por_linha4)
                         for j, via in enumerate(vias_selecionadas4[i:i + cols_por_linha4]):
                             with cols4[j]:
-                                st.markdown(f"**Via de Entrada: {via}**")
+                                st.markdown(tx(f"**Via de Entrada: {via}**"))
 
                                 df_via_pais = df_fonte_grafico[df_fonte_grafico[via_col] == via]
                                 df_via_pais = (
@@ -1822,7 +1937,7 @@ if "df_eua_multi" in st.session_state:
                                 total_via = df_via_pais["_valor"].sum()
 
                                 if not total_via or total_via <= 0:
-                                    st.info("Sem dados nessa via de entrada no período selecionado.")
+                                    st.info(tx("Sem dados nessa via de entrada no período selecionado."))
                                     continue
 
                                 top5_via = df_via_pais.head(5)
@@ -1856,7 +1971,7 @@ if "df_eua_multi" in st.session_state:
                                     )
                                 )
                                 fig4.update_layout(
-                                    xaxis_title="% do total nessa via de entrada",
+                                    xaxis_title=tx("% do total nessa via de entrada"),
                                     xaxis=dict(range=[0, max(percentuais4_h) * 1.2]),
                                     yaxis=dict(categoryorder="array", categoryarray=labels4_h),
                                     plot_bgcolor="#DBF7FF",
@@ -1871,10 +1986,10 @@ if "df_eua_multi" in st.session_state:
                                 st.plotly_chart(fig4, use_container_width=True, key=chart4_key)
             else:
                 st.info(
-                    "Este gráfico exige quebra por país E por via de entrada ao "
+                    tx("Este gráfico exige quebra por país E por via de entrada ao "
                     "mesmo tempo nos dados retornados -- selecione mais de um "
                     "país e mais de uma via de entrada nos filtros (ou deixe ambos vazios "
-                    "para trazer todos) e tente novamente."
+                    "para trazer todos) e tente novamente.")
                 )
 
             # ------------------------------------------------------------
@@ -1899,7 +2014,12 @@ if "df_eua_multi" in st.session_state:
                 unsafe_allow_html=True,
             )
 
-            if metrica_grafico == "Quantidade":
+            if eh_export:
+                st.info(
+                    "O gráfico de Modal de Transporte (Census API) ainda não está "
+                    "disponível para **Exportações**."
+                )
+            elif metrica_grafico == "Quantidade":
                 st.info(
                     "Modal de transporte só está disponível para **Valor (USD)** -- "
                     "a Census API não expõe quantidade quebrada por modal."
@@ -1959,7 +2079,7 @@ if "df_eua_multi" in st.session_state:
                     )
                 with col_fv:
                     vias_modal_sel = st.multiselect(
-                        "Vias de entrada consideradas neste gráfico (opcional — vazio = todas)",
+                        tx("Vias de entrada consideradas neste gráfico (opcional — vazio = todas)"),
                         options=vias_modal_opcoes,
                         default=[],
                         key=f"vias_modal_{combo_id}",
@@ -1995,12 +2115,12 @@ if "df_eua_multi" in st.session_state:
 
                 if df_census is not None and df_census.empty:
                     st.info(
-                        "Sem dados de modal de transporte para essa combinação de "
+                        tx("Sem dados de modal de transporte para essa combinação de "
                         "HTS, período, país e/ou via de entrada. Isso pode acontecer "
                         "porque: (1) o HTS foi revisado na classificação usada por "
                         "essa fonte, ou (2) o país/via filtrado não teve comércio "
                         "registrado nesse recorte. Tente ampliar os filtros, o "
-                        "intervalo de anos, ou usar outro HTS."
+                        "intervalo de anos, ou usar outro HTS.")
                     )
                 elif df_census is not None:
                     if monthly:
@@ -2271,9 +2391,9 @@ if "df_eua_multi" in st.session_state:
                     st.info("Sem valores no período selecionado para exibir este gráfico.")
             else:
                 st.info(
-                    "Nenhuma quebra por país nos dados retornados para esta "
+                    tx("Nenhuma quebra por país nos dados retornados para esta "
                     "consulta -- selecione mais de um país de origem, ou "
-                    "deixe o filtro vazio para trazer todos, e tente novamente."
+                    "deixe o filtro vazio para trazer todos, e tente novamente.")
                 )
 
             # ------------------------------------------------------------
@@ -2285,14 +2405,14 @@ if "df_eua_multi" in st.session_state:
             # ------------------------------------------------------------
             st.divider()
             st.markdown(
-                f"""
+                tx(f"""
                 <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
                     Volume total transacionado em {metrica_grafico} (Realizado) por País Separado por Via de Entrada
                 </h2>
                 <p style='text-align:center; font-size:0.85rem; color:#666; margin:0;'>
                     Top 5 + "Outros", por via de entrada
                 </p>
-                """,
+                """),
                 unsafe_allow_html=True,
             )
             legenda_unidade_hts()
@@ -2322,31 +2442,31 @@ if "df_eua_multi" in st.session_state:
 
                 col_label6, col_btn6 = st.columns([5, 1])
                 with col_label6:
-                    st.markdown("**Vias de Entrada exibidas (cada uma vira um mini-gráfico)**")
+                    st.markdown(tx("**Vias de Entrada exibidas (cada uma vira um mini-gráfico)**"))
                 with col_btn6:
                     if st.button("🔝 Restaurar Top 5", key=f"vias_grafico6_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key6] = True
                         st.rerun()
 
                 vias_selecionadas6 = st.multiselect(
-                    "Vias de Entrada exibidas neste gráfico",
+                    tx("Vias de Entrada exibidas neste gráfico"),
                     options=todas_vias_alfa,
                     default=top5_default,
                     key=ms_key6,
                     label_visibility="collapsed",
                     max_selections=8,
                 )
-                st.caption("Máximo de 8 vias de entrada por vez (cada uma gera um mini-gráfico).")
+                st.caption(tx("Máximo de 8 vias de entrada por vez (cada uma gera um mini-gráfico)."))
 
                 if not vias_selecionadas6:
-                    st.info("Selecione ao menos uma via de entrada para exibir os gráficos.")
+                    st.info(tx("Selecione ao menos uma via de entrada para exibir os gráficos."))
                 else:
                     cols_por_linha6 = 2
                     for i in range(0, len(vias_selecionadas6), cols_por_linha6):
                         cols6 = st.columns(cols_por_linha6)
                         for j, via in enumerate(vias_selecionadas6[i:i + cols_por_linha6]):
                             with cols6[j]:
-                                st.markdown(f"**Via de Entrada: {via}**")
+                                st.markdown(tx(f"**Via de Entrada: {via}**"))
 
                                 df_via_pais6 = df_fonte_grafico[df_fonte_grafico[via_col] == via]
                                 df_via_pais6 = (
@@ -2358,7 +2478,7 @@ if "df_eua_multi" in st.session_state:
                                 total_via6 = df_via_pais6["_valor"].sum()
 
                                 if not total_via6 or total_via6 <= 0:
-                                    st.info("Sem dados nessa via de entrada no período selecionado.")
+                                    st.info(tx("Sem dados nessa via de entrada no período selecionado."))
                                     continue
 
                                 top5_via6 = df_via_pais6.head(5)
@@ -2402,8 +2522,8 @@ if "df_eua_multi" in st.session_state:
                                 st.plotly_chart(fig6, use_container_width=True, key=chart6_key)
             else:
                 st.info(
-                    "Este gráfico exige quebra por país E por via de entrada ao "
+                    tx("Este gráfico exige quebra por país E por via de entrada ao "
                     "mesmo tempo nos dados retornados -- selecione mais de um "
                     "país e mais de uma via de entrada nos filtros (ou deixe ambos vazios "
-                    "para trazer todos) e tente novamente."
+                    "para trazer todos) e tente novamente.")
                 )
