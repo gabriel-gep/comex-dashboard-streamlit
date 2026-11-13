@@ -245,11 +245,12 @@ with st.expander("Fontes e base de valor"):
 
 with st.expander("Utilização do aplicativo"):
     st.markdown(tx("""
-1. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule), um por linha, e aplique com **Ctrl+Enter** - pontos são removidos automaticamente.
-2. Escolha a(s) métrica(s): **Valor** (USD) e/ou **Quantidade** (unidade do produto).
-3. Escolha o período: **Anual** ou **Mensal** (linha do tempo contínua) e o **intervalo de anos**.
-4. Depois do HTS e do intervalo de anos, aparecem os filtros opcionais, em cascata: primeiro **país(es) de origem** e em seguida **via de entrada** (porto/distrito aduaneiro). Cada lista mostra só o que tem comércio registrado para o(s) HTS, os anos e os filtros anteriores.
-5. Clique em **Buscar dados** SEMPRE que quiser carregar ou atualizar as visualizações.
+1. Escolha o **Fluxo** na barra lateral: **Importação** ou **Exportação** (doméstica ou total).
+2. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule), um por linha, e aplique com **Ctrl+Enter** - pontos são removidos automaticamente.
+3. Escolha a(s) métrica(s): **Valor** (USD) e/ou **Quantidade** (unidade do produto).
+4. Escolha o período: **Anual** ou **Mensal** (linha do tempo contínua) e o **intervalo de anos**.
+5. Depois do HTS e do intervalo de anos, aparecem os filtros opcionais, em cascata: primeiro **país(es) de origem** e em seguida **via de entrada** (porto/distrito aduaneiro). Cada lista mostra só o que tem comércio registrado para o(s) HTS, os anos e os filtros anteriores.
+6. Clique em **Buscar dados** SEMPRE que quiser carregar ou atualizar as visualizações.
 """))
 
 # --------------------------------------------------------------------
