@@ -1210,27 +1210,6 @@ if "df_eua_multi" in st.session_state:
         if not periodo_cols:
             return
 
-    # Monta o Excel único (Totais + Detalhe por medida). Sempre em Excel,
-    # nunca mais CSV -- com 1 medida selecionada, tem 2 abas; com as 2
-    # medidas, tem 4 abas.
-    import io
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        for label, df in dfs_por_medida.items():
-            df_exibicao_tmp, _ = preparar_df_exibicao(df, label)
-            df_totais_tmp = preparar_df_totais(df, label)
-            nome_base = label_pt(label)
-            if not df_totais_tmp.empty:
-                df_totais_tmp.to_excel(writer, sheet_name=f"{nome_base} - Totais"[:31], index=False)
-            df_exibicao_tmp.to_excel(writer, sheet_name=f"{nome_base} - Detalhe"[:31], index=False)
-        if (not monthly) and ytd_mes_por_medida and str(ano_atual) in years:
-            notas = [
-                f"{ano_atual} é o ano em andamento: inclui dados apenas até "
-                f"{mes}/{ano_atual} ({label_pt(lbl)})."
-                for lbl, mes in ytd_mes_por_medida.items()
-            ]
-            pd.DataFrame({"Notas": notas}).to_excel(writer, sheet_name="Notas", index=False)
-    excel_bytes = buffer.getvalue()
 
     # ----------------------------------------------------------------
     # Controles globais (topo dos resultados): métrica das tabelas e de
@@ -1375,13 +1354,13 @@ if "df_eua_multi" in st.session_state:
             return f"{p} (até {ate_mes_ytd})"
         return str(p)
 
-    # Período exibido -- um único slicer no topo, vale para TODOS os gráficos
-    # (as tabelas continuam mostrando o período consultado inteiro).
+    # Período exibido -- um único slicer no topo, vale para as tabelas e
+    # para TODOS os gráficos (inclusive o Excel para download).
     _periodos_opcoes = periodo_cols_de(dfs_por_medida[chave_medida])
     if len(_periodos_opcoes) > 1:
         _busca_id = st.session_state.get("df_eua_busca_id", 0)
         _p_ini, _p_fim = st.select_slider(
-            "Período exibido nos gráficos",
+            "Período exibido (tabelas e gráficos)",
             options=_periodos_opcoes,
             value=(_periodos_opcoes[0], _periodos_opcoes[-1]),
             format_func=rotulo_periodo,
@@ -1397,7 +1376,40 @@ if "df_eua_multi" in st.session_state:
         """Períodos de `colunas` dentro do recorte escolhido no slicer global."""
         return [c for c in colunas if c in periodos_sel_global]
 
-    label, df = chave_medida, dfs_por_medida[chave_medida]
+    def recortar_df_periodo(df_):
+        """Remove as colunas de período fora do recorte do slicer do topo."""
+        cols_periodo = (
+            [c for c in df_.columns if re.match(r"^[A-Za-zçã]{3}/\d{4}$", str(c))]
+            if monthly else [c for c in years if c in df_.columns]
+        )
+        return df_.drop(columns=[c for c in cols_periodo if c not in periodos_sel_global])
+
+    # Monta o Excel único (Totais + Detalhe por medida), já no recorte de
+    # período do slicer do topo. Sempre em Excel,
+    # nunca mais CSV -- com 1 medida selecionada, tem 2 abas; com as 2
+    # medidas, tem 4 abas.
+    import io
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        for label, df in dfs_por_medida.items():
+            df = recortar_df_periodo(df)  # mesmo recorte do slicer do topo
+            df_exibicao_tmp, _ = preparar_df_exibicao(df, label)
+            df_totais_tmp = preparar_df_totais(df, label)
+            nome_base = label_pt(label)
+            if not df_totais_tmp.empty:
+                df_totais_tmp.to_excel(writer, sheet_name=f"{nome_base} - Totais"[:31], index=False)
+            df_exibicao_tmp.to_excel(writer, sheet_name=f"{nome_base} - Detalhe"[:31], index=False)
+        if (not monthly) and ytd_mes_por_medida and str(ano_atual) in periodos_sel_global:
+            notas = [
+                f"{ano_atual} é o ano em andamento: inclui dados apenas até "
+                f"{mes}/{ano_atual} ({label_pt(lbl)})."
+                for lbl, mes in ytd_mes_por_medida.items()
+            ]
+            pd.DataFrame({"Notas": notas}).to_excel(writer, sheet_name="Notas", index=False)
+    excel_bytes = buffer.getvalue()
+
+    # Tabelas: só as colunas de período dentro do recorte do slicer.
+    label, df = chave_medida, recortar_df_periodo(dfs_por_medida[chave_medida])
     df_exibicao, periodo_cols = preparar_df_exibicao(df, label)
     df_totais = preparar_df_totais(df, label)
     renderizar_medida(
