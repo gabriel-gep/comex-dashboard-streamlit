@@ -1483,16 +1483,22 @@ if "df_eua_multi" in st.session_state:
             for tr in barras:
                 tr.update(text=None, texttemplate=None)
             for tr in fig.data:
-                if tr.type == "scatter" and tr.mode and "lines" in tr.mode:
+                if tr.type == "scatter" and tr.mode and "lines" in tr.mode and tr.meta != "sem_rotulo":
                     tr.update(mode="lines+markers")
             return fig
 
-        # Barras que já vêm com rótulo próprio: só garante a posição.
+        # Barras que já vêm com rótulo próprio: garante posição e tamanho
+        # (sem isso o Plotly encolhe o texto para caber na barra).
+        _tem_proprio = False
         for tr in barras:
             if tr not in barras_v:
                 if tr.text is None:  # horizontais sem rótulo
                     tr.update(texttemplate="%{x:,.0f}")
-                tr.update(textposition="outside", cliponaxis=False)
+                tr.update(textposition="outside", cliponaxis=False,
+                          constraintext="none", textfont=FONTE_ROTULO)
+                _tem_proprio = True
+        if _tem_proprio:
+            fig.update_layout(uniformtext=dict(minsize=FONTE_ROTULO["size"], mode="show"))
 
         # Barras verticais sem rótulo: rótulos verticais, de N em N barras.
         if barras_v:
@@ -1531,7 +1537,7 @@ if "df_eua_multi" in st.session_state:
 
         # Linhas: rótulos espaçados nos pontos.
         for tr in fig.data:
-            if tr.type == "scatter" and tr.mode and "lines" in tr.mode:
+            if tr.type == "scatter" and tr.mode and "lines" in tr.mode and tr.meta != "sem_rotulo":
                 npts = len(tr.y)
                 passo = max(1, math.ceil(npts / MAX_ROTULOS))
                 tr.update(
@@ -2673,9 +2679,10 @@ if "df_eua_multi" in st.session_state:
 
             # ------------------------------------------------------------
             # Gráfico 5 -- volume total (valor absoluto) por país, barras
-            # verticais, corte por Top 95% acumulado + "Outros" (não top 5
-            # fixo -- equivalente ao gráfico "Volume total transacionado
-            # por País" do dash Brasil).
+            # verticais, no formato Pareto 80-20: países que somam 80% do total
+            # + "Outros", com linha de % acumulado (não top 5 fixo --
+            # equivalente ao gráfico "Volume total transacionado por País"
+            # do dash Brasil).
             # ------------------------------------------------------------
             st.divider()
             st.markdown(
@@ -2684,7 +2691,7 @@ if "df_eua_multi" in st.session_state:
                     Volume total transacionado em {metrica_grafico} (Realizado) por País
                 </h2>
                 <p style='text-align:center; font-size:0.85rem; color:#666; margin:0;'>
-                    Top 95% acumulado + "Outros"
+                    Pareto 80-20: países que somam 80% do total + "Outros" (linha = % acumulado)
                 </p>
                 """,
                 unsafe_allow_html=True,
@@ -2707,39 +2714,68 @@ if "df_eua_multi" in st.session_state:
 
                 if total_geral5 and total_geral5 > 0:
                     df_pais5["_perc_acumulado"] = df_pais5["_valor"].cumsum() / total_geral5
-                    candidatos_95 = df_pais5[df_pais5["_perc_acumulado"] >= 0.95].index
-                    idx_limite5 = candidatos_95.min() if len(candidatos_95) else len(df_pais5) - 1
+                    # Pareto 80-20: menor conjunto de países que soma >= 80% do total;
+                    # o restante vira "Outros".
+                    LIMITE_PARETO = 0.80
+                    candidatos_corte = df_pais5[df_pais5["_perc_acumulado"] >= LIMITE_PARETO].index
+                    idx_limite5 = candidatos_corte.min() if len(candidatos_corte) else len(df_pais5) - 1
 
-                    df_top95 = df_pais5.iloc[: idx_limite5 + 1].copy()
+                    df_top = df_pais5.iloc[: idx_limite5 + 1].copy()
                     outros_valor5 = df_pais5["_valor"].iloc[idx_limite5 + 1:].sum()
 
-                    labels5 = df_top95[country_col].tolist()
-                    valores5 = df_top95["_valor"].tolist()
+                    labels5 = df_top[country_col].tolist()
+                    valores5 = df_top["_valor"].tolist()
+                    acumulado5 = (df_top["_perc_acumulado"] * 100).tolist()
                     if outros_valor5 > 0:
                         labels5.append("Outros")
                         valores5.append(outros_valor5)
+                        acumulado5.append(100.0)
 
-                    fig5 = go.Figure(
+                    fig5 = go.Figure()
+                    fig5.add_trace(
                         go.Bar(
                             x=labels5,
                             y=valores5,
                             marker_color="#042373",
-                            text=[f"{v:,.0f}" for v in valores5],
+                            text=[f"{v:,.0f}" if v else "" for v in valores5],
                             textposition="outside",
-                                cliponaxis=False,
+                            textangle=-90,
+                            cliponaxis=False,
                             hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                         )
+                    )
+                    # Linha de % acumulado (eixo secundário, 0-100%) + referência de 80%.
+                    fig5.add_trace(
+                        go.Scatter(
+                            x=labels5, y=acumulado5, yaxis="y2", mode="lines+markers",
+                            line=dict(color="#E8590C", width=2), marker=dict(size=7),
+                            meta="sem_rotulo",  # não recebe rótulos de dados
+                            hovertemplate="%{x}<br>% acumulado: %{y:.1f}%<extra></extra>",
+                        )
+                    )
+                    fig5.add_hline(
+                        y=LIMITE_PARETO * 100, yref="y2", line=dict(color="#E8590C", width=1, dash="dash"),
+                        annotation_text="80%", annotation_position="top right",
+                        annotation_font=dict(size=12, color="#E8590C"),
                     )
                     fig5.update_layout(
                         xaxis_title="País",
                         yaxis_title=titulo_eixo_metrica,
-                        xaxis=dict(categoryorder="array", categoryarray=labels5, tickangle=0),
-                        yaxis=dict(range=[0, max(valores5) * 1.15]),
+                        xaxis=dict(
+                            type="category", categoryorder="array", categoryarray=labels5,
+                            tickmode="linear", dtick=1,  # mostra todos os países
+                            tickangle=-45, tickfont=dict(size=12), automargin=True,
+                        ),
+                        yaxis=dict(range=[0, max(valores5) * 1.4]),
+                        yaxis2=dict(
+                            title="% acumulado", overlaying="y", side="right",
+                            range=[0, 105], ticksuffix="%", showgrid=False,
+                        ),
                         plot_bgcolor="#DBF7FF",
                         paper_bgcolor="white",
-                        height=550,
+                        height=650,
                         showlegend=False,
-                        margin=dict(t=60, b=100, l=60, r=40),
+                        margin=dict(t=40, b=60, l=60, r=60),
                     )
                     fig5.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                     fig5.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
