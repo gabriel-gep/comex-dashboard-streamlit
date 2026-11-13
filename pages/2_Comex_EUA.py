@@ -1289,7 +1289,7 @@ if "df_eua_multi" in st.session_state:
         import math
         MAX_ROTULOS = 24          # alvo de rótulos por série em gráficos densos
         MAX_ROTULOS_AGRUPADO = 50  # alvo total em barras agrupadas (várias séries)
-        FONTE_ROTULO = dict(size=13, color="#000000")
+        FONTE_ROTULO = dict(size=12, color="#000000")
 
         def _fmt(v):
             try:
@@ -2428,7 +2428,7 @@ if "df_eua_multi" in st.session_state:
                                 showarrow=False,
                                 xanchor="left",
                                 xshift=10,
-                                font=dict(color=cores_modal[col], size=13),
+                                font=dict(color=cores_modal[col], size=12),
                             )
 
                         # Trace invisível com o tooltip combinado dos modais
