@@ -1023,7 +1023,9 @@ if "df_eua_multi" in st.session_state:
 
         if not linhas:
             return pd.DataFrame()
-        return pd.DataFrame(linhas)
+        df_linhas = pd.DataFrame(linhas)
+        df_linhas[nome_valor] = df_linhas[nome_valor].round(0)  # projeção em números inteiros
+        return df_linhas
 
     def preparar_df_exibicao(df, medida_label):
         """Formato longo (uma linha por período), granularidade HTS + Via
@@ -1124,6 +1126,20 @@ if "df_eua_multi" in st.session_state:
                     )
                     df_proj[desc_col] = df_proj[hts_col].map(mapa_desc)
                 df_longo = pd.concat([df_longo, df_proj], ignore_index=True, sort=False)
+
+                # Linhas projetadas não trazem a unidade de medida: preenche pelo HTS.
+                if "Unidade de Medida" in df_longo.columns:
+                    if hts_col and hts_col in df_agg.columns:
+                        _mapa_un = (
+                            df_agg.dropna(subset=[hts_col]).drop_duplicates(hts_col)
+                            .set_index(hts_col)["Unidade de Medida"].to_dict()
+                        )
+                        _faltam = df_longo["Unidade de Medida"].isna()
+                        df_longo.loc[_faltam, "Unidade de Medida"] = df_longo.loc[_faltam, hts_col].map(_mapa_un)
+                    else:
+                        _un = df_agg["Unidade de Medida"].dropna()
+                        if not _un.empty:
+                            df_longo["Unidade de Medida"] = df_longo["Unidade de Medida"].fillna(_un.iloc[0])
 
         # Ordem das colunas (tabela em tela e Excel): Data, HTS, Descrição,
         # Via de Entrada/Distrito, Valor, Unidade de Medida (só em
@@ -1234,6 +1250,20 @@ if "df_eua_multi" in st.session_state:
                     )
                     df_proj_hts[desc_col] = df_proj_hts[hts_col].map(mapa_desc)
                 df_longo = pd.concat([df_longo, df_proj_hts], ignore_index=True, sort=False)
+
+                # Linhas projetadas não trazem a unidade de medida: preenche pelo HTS.
+                if "Unidade de Medida" in df_longo.columns:
+                    if hts_col and hts_col in df_tot.columns:
+                        _mapa_un = (
+                            df_tot.dropna(subset=[hts_col]).drop_duplicates(hts_col)
+                            .set_index(hts_col)["Unidade de Medida"].to_dict()
+                        )
+                        _faltam = df_longo["Unidade de Medida"].isna()
+                        df_longo.loc[_faltam, "Unidade de Medida"] = df_longo.loc[_faltam, hts_col].map(_mapa_un)
+                    else:
+                        _un = df_tot["Unidade de Medida"].dropna()
+                        if not _un.empty:
+                            df_longo["Unidade de Medida"] = df_longo["Unidade de Medida"].fillna(_un.iloc[0])
 
         # Ordem das colunas: Data, HTS, Descrição, Valor, Unidade de Medida
         # (só em Quantidade) e Tipo (só no Mensal). O índice da linha é o
@@ -1602,14 +1632,32 @@ if "df_eua_multi" in st.session_state:
         busca_id = st.session_state.get("df_eua_busca_id", 0)
         combo_id = re.sub(r"\W+", "_", f"{busca_id}_{metrica_grafico}_{hts_escolhido or 'total'}".lower())
 
+        # Unidade de medida do HTS exibido (só em Quantidade) -- usada na
+        # legenda sob o título e no título do eixo dos gráficos maiores.
+        unidades_txt = ""
+        if metrica_grafico == "Quantidade" and "Quantity Description" in df_fonte_grafico.columns:
+            _un = (
+                df_fonte_grafico["Quantity Description"]
+                .dropna().astype(str)
+                .str.replace("Value for: ", "", regex=False)
+                .unique()
+            )
+            unidades_txt = ", ".join(sorted(u for u in _un if u and u != "nan"))
+        titulo_eixo_metrica = (
+            f"Quantidade ({unidades_txt})" if unidades_txt else metrica_grafico
+        )
+
         def legenda_unidade_hts():
             """Mostra, embaixo do título de cada gráfico, qual HTS está
             sendo exibido (quando um HTS específico foi escolhido, não o
             Total) e, numa linha abaixo, a unidade de medida (quando
             Quantidade)."""
             linhas = []
-            if hts_escolhido is not None:
-                linhas.append(f"HTS exibido: {hts_labels.get(hts_escolhido, hts_escolhido)}")
+            _h = hts_escolhido
+            if _h is None and len(hts_presentes) == 1:
+                _h = hts_presentes[0]  # um único HTS na consulta
+            if _h is not None:
+                linhas.append(f"HTS exibido: {_linha_hts(_h)}")
             if metrica_grafico == "Quantidade" and "Quantity Description" in df_fonte_grafico.columns:
                 unidades = (
                     df_fonte_grafico["Quantity Description"]
@@ -1868,7 +1916,7 @@ if "df_eua_multi" in st.session_state:
                                     serie_proj = forecast_por_via.get(via)
                                     if serie_proj is not None and len(serie_proj) > 0:
                                         periodos_proj = [data_para_periodo_label(d) for d in serie_proj.index]
-                                        valores_proj = serie_proj.tolist()
+                                        valores_proj = [round(v) for v in serie_proj.tolist()]
                                         fig.add_trace(
                                             go.Bar(
                                                 x=periodos_proj, y=valores_proj,
@@ -1955,7 +2003,7 @@ if "df_eua_multi" in st.session_state:
                     fig2.update_layout(
                         barmode="group",
                         xaxis_title="Período",
-                        yaxis_title=metrica_grafico,
+                        yaxis_title=titulo_eixo_metrica,
                         plot_bgcolor="#DBF7FF",
                         paper_bgcolor="white",
                         height=600,
@@ -2599,7 +2647,7 @@ if "df_eua_multi" in st.session_state:
                     )
                     fig5.update_layout(
                         xaxis_title="País",
-                        yaxis_title=metrica_grafico,
+                        yaxis_title=titulo_eixo_metrica,
                         xaxis=dict(categoryorder="array", categoryarray=labels5, tickangle=0),
                         yaxis=dict(range=[0, max(valores5) * 1.15]),
                         plot_bgcolor="#DBF7FF",
@@ -2719,7 +2767,7 @@ if "df_eua_multi" in st.session_state:
                                     )
                                 )
                                 fig6.update_layout(
-                                    xaxis_title=metrica_grafico,
+                                    xaxis_title=titulo_eixo_metrica,
                                     xaxis=dict(range=[0, max(valores6_h) * 1.2]),
                                     yaxis=dict(categoryorder="array", categoryarray=labels6_h),
                                     plot_bgcolor="#DBF7FF",
