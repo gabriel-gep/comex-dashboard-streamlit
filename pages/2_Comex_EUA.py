@@ -219,32 +219,32 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if eh_export:
-    st.warning(
-        "**Fontes:** USITC DataWeb (dados oficiais de comércio exterior dos EUA). "
-        f"Consulta de **Exportações {tipo_export_label.lower()}s** "
-        + ("(*Domestic Exports*: bens produzidos nos EUA)" if tipo_export == "Export"
-           else "(*Total Exports*: domésticas + reexportações)")
-        + ", por código HTS de até **6 dígitos** (exportações não têm nível oficial de 8 ou 10 dígitos; "
-        "códigos maiores são reduzidos automaticamente aos 6 primeiros).  \n"
-        "**Base de valor:** os valores em USD (*FAS Value*) são *Free Alongside Ship*: "
-        "valor da mercadoria no porto de embarque nos EUA, sem frete nem seguro internacionais.  \n"
-        "O gráfico de Modal de Transporte (Census API) ainda não está disponível para Exportações."
-    )
-else:
-    st.warning(
-        "**Fontes:** USITC DataWeb e Census Bureau International Trade API "
-        "(dados oficiais de comércio exterior dos EUA). "
-        "Consulta cobre **Importações** (Import For Consumption), por código HTS. "
-        "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb.  \n"
-        "**Base de valor:** os valores em USD (*Customs Value*) seguem a base FAS, "
-        "equivalente a **FOB** - ou seja, sem frete, seguro nem tarifas de importação embutidos."
-    )
+with st.expander("Fontes e base de valor"):
+    if eh_export:
+        st.markdown(
+            "**Fontes:** USITC DataWeb (dados oficiais de comércio exterior dos EUA). "
+            f"Consulta de **Exportações {'domésticas' if tipo_export == 'Export' else 'totais'}** "
+            + ("(*Domestic Exports*: bens produzidos nos EUA)" if tipo_export == "Export"
+               else "(*Total Exports*: domésticas + reexportações)")
+            + ", por código HTS de até **6 dígitos** (exportações não têm nível oficial de 8 ou 10 dígitos; "
+            "códigos maiores são reduzidos automaticamente aos 6 primeiros).  \n"
+            "**Base de valor:** os valores em USD (*FAS Value*) são *Free Alongside Ship*: "
+            "valor da mercadoria no porto de embarque nos EUA, sem frete nem seguro internacionais.  \n"
+            "O gráfico de Modal de Transporte (Census API) ainda não está disponível para Exportações."
+        )
+    else:
+        st.markdown(
+            "**Fontes:** USITC DataWeb e Census Bureau International Trade API "
+            "(dados oficiais de comércio exterior dos EUA). "
+            "Consulta cobre **Importações** (Import For Consumption), por código HTS. "
+            "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb.  \n"
+            "**Base de valor:** os valores em USD (*Customs Value*) seguem a base FAS, "
+            "equivalente a **FOB** - ou seja, sem frete, seguro nem tarifas de importação embutidos."
+        )
 
-st.markdown(tx("""
-### Utilização do Aplicativo
 
-0. Escolha o **Fluxo** na barra lateral: **Importação** ou **Exportação** (doméstica ou total).
+with st.expander("Utilização do aplicativo"):
+    st.markdown(tx("""
 1. Informe um ou mais códigos **HTS** (Harmonized Tariff Schedule), um por linha, e aplique com **Ctrl+Enter** - pontos são removidos automaticamente.
 2. Escolha a(s) métrica(s): **Valor** (USD) e/ou **Quantidade** (unidade do produto).
 3. Escolha o período: **Anual** ou **Mensal** (linha do tempo contínua) e o **intervalo de anos**.
@@ -787,6 +787,7 @@ if buscar:
     st.session_state["df_eua_ytd_mes"] = ytd_ate_mes
     st.session_state["df_eua_hts"] = hts_codes
     st.session_state["df_eua_fluxo"] = fluxo
+    st.session_state["df_eua_tipo_export"] = tipo_export_label
     # Identifica a busca: entra na chave dos sliders/multiselects dos gráficos, para
     # que uma busca nova não herde o recorte de período/seleção da busca anterior
     # (ex.: slider preso em "até 2025" depois de uma busca que inclui 2026).
@@ -844,6 +845,74 @@ if "df_eua_multi" in st.session_state:
             "O fluxo selecionado na barra lateral mudou desde a última busca. "
             "Clique em **Buscar dados** para atualizar os resultados."
         )
+
+    # ----------------------------------------------------------------
+    # Cabeçalho do HTS pesquisado: "código | descrição" em destaque e, se
+    # houver mais de um HTS, os demais ficam em "Outros" (expansível).
+    # ----------------------------------------------------------------
+    from html import escape as _esc
+
+    def _fmt_hts(c):
+        c = re.sub(r"\D", "", str(c))
+        if len(c) > 6:
+            return f"{c[:4]}.{c[4:6]}.{c[6:]}"
+        if len(c) > 4:
+            return f"{c[:4]}.{c[4:]}"
+        return c
+
+    _df0 = next(iter(dfs_por_medida.values()))
+    _cols_p = (
+        [c for c in _df0.columns if re.match(r"^[A-Za-zçã]{3}/\d{4}$", str(c))]
+        if monthly else [c for c in years if c in _df0.columns]
+    )
+    _lab = [c for c in _df0.columns if c not in _cols_p]
+    _hts_c = None
+    for c in _lab:
+        _v = set(str(x) for x in _df0[c].dropna().unique())
+        if _v and _v.issubset(set(hts_codes)):
+            _hts_c = c
+            break
+    _desc_c = None
+    if _hts_c:
+        if "Description" in _df0.columns:
+            _desc_c = "Description"
+        else:
+            for c in _lab:
+                if c in (_hts_c, "Quantity Description"):
+                    continue
+                _vs = _df0[c].dropna().astype(str)
+                if (_vs.isin(COUNTRY_CODES.keys()).mean() < 0.5
+                        and _vs.isin(DISTRICT_CODES.keys()).mean() < 0.5):
+                    _desc_c = c
+                    break
+    _descricoes = {}
+    if _hts_c and _desc_c:
+        for h, d in zip(_df0[_hts_c], _df0[_desc_c]):
+            if pd.notna(h) and pd.notna(d):
+                _descricoes.setdefault(str(h), str(d))
+
+    def _linha_hts(h):
+        d = _descricoes.get(str(h))
+        return f"{_fmt_hts(h)} | {d}" if d else _fmt_hts(h)
+
+    _tipo_exp = st.session_state.get("df_eua_tipo_export", "Doméstica")
+    _fluxo_txt = f"Exportação {_tipo_exp.lower()}" if eh_export else "Importação"
+    if hts_codes:
+        st.markdown(
+            f"""
+            <div style="margin: 0.75rem 0 0.25rem 0;">
+              <div style="font-size:1.8rem; line-height:1.25; color:#31333F;">{_esc(_linha_hts(hts_codes[0]))}</div>
+              <div style="font-size:0.95rem; color:#555; margin-top:0.3rem;">
+                Fonte: USITC DataWeb | País: Estados Unidos | Fluxo: {_esc(_fluxo_txt)}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if len(hts_codes) > 1:
+            with st.expander(f"Outros ({len(hts_codes) - 1})"):
+                for h in hts_codes[1:]:
+                    st.markdown(f"**{_esc(_fmt_hts(h))}**" + (f" | {_esc(_descricoes[str(h)])}" if str(h) in _descricoes else ""))
 
     def periodo_cols_de(df):
         if monthly:
