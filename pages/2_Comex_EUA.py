@@ -21,6 +21,7 @@ from dataweb_client import (
     EXPORT_TRADE_TYPES,
     run_report,
     parse_report,
+    response_error_message,
     get_table_label,
     num_tables,
     reshape_monthly_timeline,
@@ -567,11 +568,11 @@ if buscar:
         year_start_query = year_start
     years_query = [str(y) for y in range(year_start_query, year_end + 1)]
 
-    with st.spinner("Consultando USITC DataWeb..."):
+    def _montar_query(anos_q):
         if eh_export:
-            query = build_export_query(
+            return build_export_query(
                 hts_codes=hts_codes,
-                years=years_query,
+                years=anos_q,
                 export_type=tipo_export,
                 countries=countries,
                 aggregate_commodities=aggregate_commodities,
@@ -581,22 +582,86 @@ if buscar:
                 districts=districts,
                 aggregate_districts=aggregate_districts,
             )
-        else:
-            query = build_import_query(
-                hts_codes=hts_codes,
-                years=years_query,
-                countries=countries,
-                aggregate_commodities=aggregate_commodities,
-                aggregate_countries=aggregate_countries,
-                measures=measures,
-                monthly=monthly,
-                districts=districts,
-                aggregate_districts=aggregate_districts,
-            )
+        return build_import_query(
+            hts_codes=hts_codes,
+            years=anos_q,
+            countries=countries,
+            aggregate_commodities=aggregate_commodities,
+            aggregate_countries=aggregate_countries,
+            measures=measures,
+            monthly=monthly,
+            districts=districts,
+            aggregate_districts=aggregate_districts,
+        )
+
+    def _tabelas_da_resposta(resp):
+        """{label canônico: DataFrame bruto} de uma resposta do DataWeb."""
+        return {
+            label_canonico(get_table_label(resp, measure_num=k)): parse_report(resp, measure_num=k)
+            for k in range(num_tables(resp))
+        }
+
+    with st.spinner("Consultando USITC DataWeb..."):
         try:
-            response = run_report(query, TOKEN)
+            response = run_report(_montar_query(years_query), TOKEN)
         except Exception as e:
             st.error(f"Erro ao consultar a API DataWeb: {e}")
+            st.stop()
+
+        # Consultas Mensais com muitos países x vias x anos (ex.: vestuário)
+        # podem estourar o limite de linhas/complexidade do DataWeb, que então
+        # devolve tabelas vazias ou nulas. Nesse caso refaz a consulta ANO A
+        # ANO e junta os resultados.
+        dfs_brutos = {}
+        try:
+            erro_resp = response_error_message(response)
+            if not erro_resp:
+                dfs_brutos = _tabelas_da_resposta(response)
+                # tabela sem nenhuma linha em TODAS as medidas = suspeito
+                if monthly and dfs_brutos and all(d.empty for d in dfs_brutos.values()):
+                    erro_resp = "a API devolveu tabelas sem linhas."
+        except Exception as e:
+            erro_resp = f"falha ao ler a resposta ({e})"
+
+        if erro_resp:
+            if monthly and len(years_query) > 1:
+                st.info(
+                    "A consulta mensal completa foi recusada pelo DataWeb "
+                    f"({erro_resp}). Consultando ano a ano..."
+                )
+                partes, erros_ano = {}, []
+                for y in years_query:
+                    try:
+                        resp_y = run_report(_montar_query([y]), TOKEN)
+                        msg_y = response_error_message(resp_y)
+                        if msg_y:
+                            erros_ano.append(f"{y}: {msg_y}")
+                            continue
+                        for lab, df_y in _tabelas_da_resposta(resp_y).items():
+                            if not df_y.empty:
+                                partes.setdefault(lab, []).append(df_y)
+                    except Exception as e:
+                        erros_ano.append(f"{y}: {e}")
+                dfs_brutos = {
+                    lab: pd.concat(frames, ignore_index=True)
+                    for lab, frames in partes.items()
+                }
+                if erros_ano and not dfs_brutos:
+                    st.error("Erro ao consultar a API DataWeb: " + " | ".join(erros_ano[:3]))
+                    st.stop()
+                if erros_ano:
+                    st.warning(
+                        "Alguns anos não puderam ser consultados e ficarão sem dado: "
+                        + " | ".join(erros_ano[:5])
+                    )
+            else:
+                st.error(f"Erro ao consultar a API DataWeb: {erro_resp}")
+                st.stop()
+
+        if not dfs_brutos or all(d.empty for d in dfs_brutos.values()):
+            st.warning(
+                "A consulta não retornou dados para esse(s) HTS, período e filtros."
+            )
             st.stop()
 
         # No Anual, o DataWeb só consolida anos COMPLETOS -- o ano em andamento
@@ -617,9 +682,9 @@ if buscar:
         dfs_por_medida = {}
         dfs_por_medida_full = {}  # versão com o histórico extra, só para a projeção
         try:
-            for i in range(num_tables(response)):
-                label = label_canonico(get_table_label(response, measure_num=i))
-                df_i = parse_report(response, measure_num=i)
+            for label, df_i in dfs_brutos.items():
+                if df_i.empty:
+                    continue  # medida sem nenhuma linha: não entra nas tabelas/gráficos
 
                 # Colunas de dado (ano ou mês) vêm como texto -- converte
                 # para numérico antes de qualquer outra coisa.
