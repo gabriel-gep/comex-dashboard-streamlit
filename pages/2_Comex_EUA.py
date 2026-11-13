@@ -1165,7 +1165,14 @@ if "df_eua_multi" in st.session_state:
                     df_proj_hts[desc_col] = df_proj_hts[hts_col].map(mapa_desc)
                 df_longo = pd.concat([df_longo, df_proj_hts], ignore_index=True, sort=False)
 
-        ordem = ["Data"] + [c for c in df_longo.columns if c not in ("Data", nome_valor)] + [nome_valor]
+        # Ordem das colunas: Data, HTS, Descrição, Valor, Unidade de Medida
+        # (só em Quantidade) e Tipo (só no Mensal). O índice da linha é o
+        # próprio índice do DataFrame.
+        cols_df = list(df_longo.columns)
+        inicio = [c for c in ("Data", hts_col, desc_col) if c and c in cols_df]
+        fim = [c for c in ("Unidade de Medida", "Tipo") if c in cols_df]
+        meio = [c for c in cols_df if c not in inicio and c not in fim and c != nome_valor]
+        ordem = inicio + meio + [nome_valor] + fim
         df_longo = df_longo[ordem].sort_values("Data").reset_index(drop=True)
 
         return df_longo
