@@ -52,7 +52,7 @@ def label_canonico(label: str) -> str:
 # --------------------------------------------------------------------
 MES_NUM_PT = {
     "Jan": 1, "Fev": 2, "Mar": 3, "Abr": 4, "Mai": 5, "Jun": 6,
-    "Jul": 7, "Ago": 8, "Set": 9, "Out": 10, "Nov": 11, "Dez": 12,
+    "Jul": 7, "Ago": 8, "Set": 9, "Out": 10, "Nov": 11, "Dez": ,
 }
 MES_ABBR_PT_INV = {v: k for k, v in MES_NUM_PT.items()}
 EN_MESES = ["January", "February", "March", "April", "May", "June",
@@ -82,7 +82,7 @@ def _proporcao_meses_zerados(valores):
 
 def forecast_ets_mnm_robust(df, date_col, h=6, constant=1e-6, max_retries=2):
     """
-    Mesma lógica usada no dash Brasil: ETS (MNM, sazonalidade 12), com
+    Mesma lógica usada no dash Brasil: ETS (MNM, sazonalidade ), com
     compressão suave para valores projetados que ultrapassam o máximo
     histórico da série. Roda uma série por coluna (exceto date_col).
     """
@@ -107,7 +107,7 @@ def forecast_ets_mnm_robust(df, date_col, h=6, constant=1e-6, max_retries=2):
 
                 last_date_series = temp_df["ds"].max()
 
-                model = ETS(model="MNM", season_length=12)
+                model = ETS(model="MNM", season_length=)
                 sf = StatsForecast(models=[model], freq="ME", n_jobs=1)
                 forecast = sf.forecast(df=temp_df, h=h)
 
@@ -810,7 +810,7 @@ def _fetch_census_modal_cached(
 
 MES_ABBR_PT = {
     "01": "Jan", "02": "Fev", "03": "Mar", "04": "Abr", "05": "Mai", "06": "Jun",
-    "07": "Jul", "08": "Ago", "09": "Set", "10": "Out", "11": "Nov", "12": "Dez",
+    "07": "Jul", "08": "Ago", "09": "Set", "10": "Out", "11": "Nov", "": "Dez",
 }
 
 # --------------------------------------------------------------------
@@ -1289,7 +1289,7 @@ if "df_eua_multi" in st.session_state:
         import math
         MAX_ROTULOS = 24          # alvo de rótulos por série em gráficos densos
         MAX_ROTULOS_AGRUPADO = 50  # alvo total em barras agrupadas (várias séries)
-        FONTE_ROTULO = dict(size=12, color="#000000")
+        FONTE_ROTULO = dict(size=11, color="#000000")
 
         def _fmt(v):
             try:
@@ -2428,7 +2428,7 @@ if "df_eua_multi" in st.session_state:
                                 showarrow=False,
                                 xanchor="left",
                                 xshift=10,
-                                font=dict(color=cores_modal[col], size=12),
+                                font=dict(color=cores_modal[col], size=11),
                             )
 
                         # Trace invisível com o tooltip combinado dos modais
