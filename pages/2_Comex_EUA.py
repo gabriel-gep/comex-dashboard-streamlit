@@ -1239,40 +1239,124 @@ if "df_eua_multi" in st.session_state:
     tem_valor = "Customs Value" in dfs_por_medida
     tem_qtd = "First Unit of Quantity" in dfs_por_medida
 
-    ctrl_metrica, ctrl_rotulos = st.columns([3, 2])
-    with ctrl_metrica:
+    # Seletor de métrica com aparência de abas (sublinhado na opção ativa).
+    # É um st.radio estilizado: assim o valor escolhido fica disponível na
+    # hora (as abas nativas não informam qual está ativa) e vale para a
+    # página inteira.
+    st.markdown(
+        """
+        <style>
+        .st-key-metrica_abas div[role="radiogroup"] {
+            gap: 0; border-bottom: 1px solid rgba(49, 51, 63, 0.2);
+        }
+        .st-key-metrica_abas label {
+            padding: 0.5rem 1rem; margin: 0; cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .st-key-metrica_abas label > div:first-child { display: none; }
+        .st-key-metrica_abas label p { color: rgb(49, 51, 63); }
+        .st-key-metrica_abas label:hover p { color: #042373; }
+        .st-key-metrica_abas label:has(input:checked) {
+            border-bottom: 2px solid #042373;
+        }
+        .st-key-metrica_abas label:has(input:checked) p { color: #042373; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container(key="metrica_abas"):
         if tem_valor and tem_qtd:
             metrica_grafico = st.radio(
                 "Métrica (tabelas e gráficos)", ["Valor (USD)", "Quantidade"],
                 horizontal=True, key="metrica_grafico_toggle",
+                label_visibility="collapsed",
             )
         elif tem_valor:
             metrica_grafico = "Valor (USD)"
         else:
             metrica_grafico = "Quantidade"
-    with ctrl_rotulos:
-        mostrar_rotulos = st.toggle(
-            "Rótulos de dados nos gráficos", value=True, key="rotulos_dados_toggle",
-        )
+    mostrar_rotulos = st.toggle(
+        "Rótulos de dados nos gráficos", value=True, key="rotulos_dados_toggle",
+    )
 
     def aplicar_rotulos_dados(fig):
         """Liga ou desliga os rótulos de dados (valores sobre barras/pontos)
-        de uma figura, conforme o botão global. Devolve a própria figura."""
-        for tr in fig.data:
-            if tr.type == "bar":
-                horizontal = getattr(tr, "orientation", None) == "h"
-                if mostrar_rotulos:
-                    if tr.text is None:  # barras sem rótulo próprio ganham o valor
-                        tr.update(texttemplate="%{x:,.0f}" if horizontal else "%{y:,.0f}")
-                    tr.update(textposition="outside", cliponaxis=False)
-                else:
-                    tr.update(text=None, texttemplate=None)
-            elif tr.type == "scatter" and tr.mode and "lines" in tr.mode:
-                if mostrar_rotulos:
-                    tr.update(mode="lines+markers+text", texttemplate="%{y:,.0f}",
-                              textposition="top center")
-                else:
+        de uma figura, conforme o botão global. Devolve a própria figura.
+
+        Gráficos com muitas barras/pontos recebem rótulos ESPAÇADOS (um a
+        cada N), na vertical e acima da barra, para não poluir. Barras que
+        já têm rótulo próprio (percentuais, países) mantêm o formato."""
+        import math
+        MAX_ROTULOS = 14          # alvo de rótulos por série em gráficos densos
+        MAX_ROTULOS_AGRUPADO = 30  # alvo total em barras agrupadas (várias séries)
+
+        def _fmt(v):
+            try:
+                return f"{float(v):,.0f}" if v is not None and v == v else ""
+            except (TypeError, ValueError):
+                return ""
+
+        barras = [t for t in fig.data if t.type == "bar"]
+        barras_v = [t for t in barras
+                    if getattr(t, "orientation", None) != "h" and t.text is None]
+
+        if not mostrar_rotulos:
+            for tr in barras:
+                tr.update(text=None, texttemplate=None)
+            for tr in fig.data:
+                if tr.type == "scatter" and tr.mode and "lines" in tr.mode:
                     tr.update(mode="lines+markers")
+            return fig
+
+        # Barras que já vêm com rótulo próprio: só garante a posição.
+        for tr in barras:
+            if tr not in barras_v:
+                if tr.text is None:  # horizontais sem rótulo
+                    tr.update(texttemplate="%{x:,.0f}")
+                tr.update(textposition="outside", cliponaxis=False)
+
+        # Barras verticais sem rótulo: rótulos verticais, de N em N barras.
+        if barras_v:
+            cats, vistos = [], {}
+            for tr in barras_v:
+                for x in tr.x:
+                    if x not in vistos:
+                        vistos[x] = len(cats)
+                        cats.append(x)
+            total_pts = sum(len(tr.x) for tr in barras_v)
+            n = len(cats)
+            compartilhado = total_pts > n          # várias barras por categoria
+            m = len(barras_v) if compartilhado else 1
+            if compartilhado:
+                passo = max(m, math.ceil(n * m / MAX_ROTULOS_AGRUPADO)) if n * m > MAX_ROTULOS_AGRUPADO else 1
+            else:
+                passo = max(1, math.ceil(n / MAX_ROTULOS))
+            ymax = 0.0
+            for j, tr in enumerate(barras_v):
+                textos = []
+                for x, y in zip(tr.x, tr.y):
+                    c = vistos[x]
+                    g = c * m + (j if compartilhado else 0)
+                    textos.append(_fmt(y) if g % passo == 0 else "")
+                    if y is not None and y == y:
+                        ymax = max(ymax, float(y))
+                tr.update(
+                    text=textos, texttemplate=None, textposition="outside",
+                    textangle=-90, textfont=dict(size=9), cliponaxis=False,
+                )
+            if ymax > 0:  # folga no topo para os rótulos verticais
+                fig.update_yaxes(range=[0, ymax * 1.22])
+
+        # Linhas: rótulos espaçados nos pontos.
+        for tr in fig.data:
+            if tr.type == "scatter" and tr.mode and "lines" in tr.mode:
+                npts = len(tr.y)
+                passo = max(1, math.ceil(npts / MAX_ROTULOS))
+                tr.update(
+                    mode="lines+markers+text",
+                    text=[_fmt(y) if k % passo == 0 else "" for k, y in enumerate(tr.y)],
+                    textposition="top center", textfont=dict(size=9),
+                )
         return fig
 
     chave_medida = "Customs Value" if metrica_grafico == "Valor (USD)" else "First Unit of Quantity"
