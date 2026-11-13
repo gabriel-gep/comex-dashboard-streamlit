@@ -1289,7 +1289,7 @@ if "df_eua_multi" in st.session_state:
         import math
         MAX_ROTULOS = 24          # alvo de rótulos por série em gráficos densos
         MAX_ROTULOS_AGRUPADO = 50  # alvo total em barras agrupadas (várias séries)
-        FONTE_ROTULO = dict(size=11, color="#000000")
+        FONTE_ROTULO = dict(size=13, color="#000000")
 
         def _fmt(v):
             try:
@@ -1366,6 +1366,37 @@ if "df_eua_multi" in st.session_state:
         return fig
 
     chave_medida = "Customs Value" if metrica_grafico == "Valor (USD)" else "First Unit of Quantity"
+
+    # No Anual, o ano em andamento é rotulado com o último mês que tem dado.
+    ate_mes_ytd = ytd_mes_por_medida.get(chave_medida)
+
+    def rotulo_periodo(p):
+        if (not monthly) and ate_mes_ytd and str(p) == str(ano_atual):
+            return f"{p} (até {ate_mes_ytd})"
+        return str(p)
+
+    # Período exibido -- um único slicer no topo, vale para TODOS os gráficos
+    # (as tabelas continuam mostrando o período consultado inteiro).
+    _periodos_opcoes = periodo_cols_de(dfs_por_medida[chave_medida])
+    if len(_periodos_opcoes) > 1:
+        _busca_id = st.session_state.get("df_eua_busca_id", 0)
+        _p_ini, _p_fim = st.select_slider(
+            "Período exibido nos gráficos",
+            options=_periodos_opcoes,
+            value=(_periodos_opcoes[0], _periodos_opcoes[-1]),
+            format_func=rotulo_periodo,
+            key=f"periodo_slicer_global_{_busca_id}_{_periodos_opcoes[0]}_{_periodos_opcoes[-1]}_{len(_periodos_opcoes)}",
+        )
+        periodos_sel_global = set(
+            _periodos_opcoes[_periodos_opcoes.index(_p_ini): _periodos_opcoes.index(_p_fim) + 1]
+        )
+    else:
+        periodos_sel_global = set(_periodos_opcoes)
+
+    def recortar_periodo(colunas):
+        """Períodos de `colunas` dentro do recorte escolhido no slicer global."""
+        return [c for c in colunas if c in periodos_sel_global]
+
     label, df = chave_medida, dfs_por_medida[chave_medida]
     df_exibicao, periodo_cols = preparar_df_exibicao(df, label)
     df_totais = preparar_df_totais(df, label)
@@ -1381,16 +1412,7 @@ if "df_eua_multi" in st.session_state:
     # ----------------------------------------------------------------
     st.divider()
 
-    chave_medida = "Customs Value" if metrica_grafico == "Valor (USD)" else "First Unit of Quantity"
     df_fonte = dfs_por_medida.get(chave_medida)
-
-    # No Anual, o ano em andamento é rotulado com o último mês que tem dado.
-    ate_mes_ytd = ytd_mes_por_medida.get(chave_medida)
-
-    def rotulo_periodo(p):
-        if (not monthly) and ate_mes_ytd and str(p) == str(ano_atual):
-            return f"{p} (até {ate_mes_ytd})"
-        return str(p)
 
     def nota_ano_em_andamento(periodos, mes=None, fonte=""):
         """Aviso sob o gráfico quando o período selecionado inclui o ano em
@@ -1547,18 +1569,7 @@ if "df_eua_multi" in st.session_state:
         else:
             # Slicer -- limita o período exibido nos gráficos, dentro do
             # intervalo já consultado.
-            if len(periodo_cols) > 1:
-                periodo_inicio, periodo_fim = st.select_slider(
-                    "Período exibido nos gráficos",
-                    format_func=rotulo_periodo,
-                    options=periodo_cols,
-                    value=(periodo_cols[0], periodo_cols[-1]),
-                )
-                idx_ini = periodo_cols.index(periodo_inicio)
-                idx_fim = periodo_cols.index(periodo_fim)
-                periodo_visivel = periodo_cols[idx_ini: idx_fim + 1]
-            else:
-                periodo_visivel = periodo_cols
+            periodo_visivel = recortar_periodo(periodo_cols)
 
             # Detecta a coluna de via de entrada/distrito para quebrar os gráficos
             via_col = None
@@ -1595,7 +1606,7 @@ if "df_eua_multi" in st.session_state:
                 with col_label:
                     st.markdown(tx("**Vias de Entrada exibidas**"))
                 with col_btn:
-                    if st.button("🔝 Restaurar Top 5", key=f"vias_grafico_reset_btn_{combo_id}", use_container_width=True):
+                    if st.button("Restaurar Top 5", key=f"vias_grafico_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key] = True
                         st.rerun()
 
@@ -1796,19 +1807,7 @@ if "df_eua_multi" in st.session_state:
                 )
                 legenda_unidade_hts()
 
-                if len(periodo_cols) > 1:
-                    periodo2_inicio, periodo2_fim = st.select_slider(
-                        "Período exibido neste gráfico",
-                        options=periodo_cols,
-                        value=(periodo_cols[0], periodo_cols[-1]),
-                        format_func=rotulo_periodo,
-                        key=f"periodo_slicer_grafico2_{combo_id}",
-                    )
-                    idx2_ini = periodo_cols.index(periodo2_inicio)
-                    idx2_fim = periodo_cols.index(periodo2_fim)
-                    periodo_visivel2 = periodo_cols[idx2_ini: idx2_fim + 1]
-                else:
-                    periodo_visivel2 = periodo_cols
+                periodo_visivel2 = recortar_periodo(periodo_cols)
 
                 ms_key2 = f"vias_grafico2_multiselect_{combo_id}"
                 reset_flag_key2 = f"vias_grafico2_reset_flag_{combo_id}"
@@ -1822,7 +1821,7 @@ if "df_eua_multi" in st.session_state:
                 with col_label2:
                     st.markdown(tx("**Vias de Entrada exibidas**"))
                 with col_btn2:
-                    if st.button("🔝 Restaurar Top 5", key=f"vias_grafico2_reset_btn_{combo_id}", use_container_width=True):
+                    if st.button("Restaurar Top 5", key=f"vias_grafico2_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key2] = True
                         st.rerun()
 
@@ -1910,19 +1909,7 @@ if "df_eua_multi" in st.session_state:
                     break
 
             if country_col:
-                if len(periodo_cols) > 1:
-                    periodo3_inicio, periodo3_fim = st.select_slider(
-                        "Período considerado neste gráfico",
-                        options=periodo_cols,
-                        value=(periodo_cols[0], periodo_cols[-1]),
-                        format_func=rotulo_periodo,
-                        key=f"periodo_slicer_grafico3_{combo_id}",
-                    )
-                    idx3_ini = periodo_cols.index(periodo3_inicio)
-                    idx3_fim = periodo_cols.index(periodo3_fim)
-                    periodo_visivel3 = periodo_cols[idx3_ini: idx3_fim + 1]
-                else:
-                    periodo_visivel3 = periodo_cols
+                periodo_visivel3 = recortar_periodo(periodo_cols)
 
                 nota_ano_em_andamento(periodo_visivel3)
 
@@ -1950,7 +1937,7 @@ if "df_eua_multi" in st.session_state:
                     with col_label3:
                         st.markdown("**Países exibidos**")
                     with col_btn3:
-                        if st.button("🔝 Restaurar Top 5", key=f"paises_grafico3_reset_btn_{combo_id}", use_container_width=True):
+                        if st.button("Restaurar Top 5", key=f"paises_grafico3_reset_btn_{combo_id}", use_container_width=True):
                             st.session_state[reset_flag_key3] = True
                             st.rerun()
 
@@ -2050,19 +2037,7 @@ if "df_eua_multi" in st.session_state:
             legenda_unidade_hts()
 
             if via_col and country_col:
-                if len(periodo_cols) > 1:
-                    periodo4_inicio, periodo4_fim = st.select_slider(
-                        "Período considerado neste gráfico",
-                        options=periodo_cols,
-                        value=(periodo_cols[0], periodo_cols[-1]),
-                        format_func=rotulo_periodo,
-                        key=f"periodo_slicer_grafico4_{combo_id}",
-                    )
-                    idx4_ini = periodo_cols.index(periodo4_inicio)
-                    idx4_fim = periodo_cols.index(periodo4_fim)
-                    periodo_visivel4 = periodo_cols[idx4_ini: idx4_fim + 1]
-                else:
-                    periodo_visivel4 = periodo_cols
+                periodo_visivel4 = recortar_periodo(periodo_cols)
 
                 nota_ano_em_andamento(periodo_visivel4)
 
@@ -2076,7 +2051,7 @@ if "df_eua_multi" in st.session_state:
                 with col_label4:
                     st.markdown(tx("**Vias de Entrada exibidas (cada uma vira um mini-gráfico)**"))
                 with col_btn4:
-                    if st.button("🔝 Restaurar Top 5", key=f"vias_grafico4_reset_btn_{combo_id}", use_container_width=True):
+                    if st.button("Restaurar Top 5", key=f"vias_grafico4_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key4] = True
                         st.rerun()
 
@@ -2337,18 +2312,8 @@ if "df_eua_multi" in st.session_state:
                     df_modal["_rotulo"] = df_modal["_periodo_label"].map(rotulo_modal)
                     periodo_modal_cols = df_modal["_periodo_label"].tolist()
 
-                    if len(periodo_modal_cols) > 1:
-                        pm_inicio, pm_fim = st.select_slider(
-                            "Período considerado neste gráfico",
-                            options=periodo_modal_cols,
-                            value=(periodo_modal_cols[0], periodo_modal_cols[-1]),
-                            format_func=rotulo_modal,
-                            key=f"periodo_slicer_modal_{combo_id}",
-                        )
-                        idx_pm_ini = periodo_modal_cols.index(pm_inicio)
-                        idx_pm_fim = periodo_modal_cols.index(pm_fim)
-                        df_modal_visivel = df_modal.iloc[idx_pm_ini: idx_pm_fim + 1]
-                    else:
+                    df_modal_visivel = df_modal[df_modal["_periodo_label"].isin(periodos_sel_global)]
+                    if df_modal_visivel.empty:  # recorte global sem sobreposição com a Census
                         df_modal_visivel = df_modal
 
                     nota_ano_em_andamento(
@@ -2428,7 +2393,7 @@ if "df_eua_multi" in st.session_state:
                                 showarrow=False,
                                 xanchor="left",
                                 xshift=10,
-                                font=dict(color=cores_modal[col], size=11),
+                                font=dict(color=cores_modal[col], size=13),
                             )
 
                         # Trace invisível com o tooltip combinado dos modais
@@ -2497,19 +2462,7 @@ if "df_eua_multi" in st.session_state:
             legenda_unidade_hts()
 
             if country_col:
-                if len(periodo_cols) > 1:
-                    periodo5_inicio, periodo5_fim = st.select_slider(
-                        "Período considerado neste gráfico",
-                        options=periodo_cols,
-                        value=(periodo_cols[0], periodo_cols[-1]),
-                        format_func=rotulo_periodo,
-                        key=f"periodo_slicer_grafico5_{combo_id}",
-                    )
-                    idx5_ini = periodo_cols.index(periodo5_inicio)
-                    idx5_fim = periodo_cols.index(periodo5_fim)
-                    periodo_visivel5 = periodo_cols[idx5_ini: idx5_fim + 1]
-                else:
-                    periodo_visivel5 = periodo_cols
+                periodo_visivel5 = recortar_periodo(periodo_cols)
 
                 nota_ano_em_andamento(periodo_visivel5)
 
@@ -2592,19 +2545,7 @@ if "df_eua_multi" in st.session_state:
             legenda_unidade_hts()
 
             if via_col and country_col:
-                if len(periodo_cols) > 1:
-                    periodo6_inicio, periodo6_fim = st.select_slider(
-                        "Período considerado neste gráfico",
-                        options=periodo_cols,
-                        value=(periodo_cols[0], periodo_cols[-1]),
-                        format_func=rotulo_periodo,
-                        key=f"periodo_slicer_grafico6_{combo_id}",
-                    )
-                    idx6_ini = periodo_cols.index(periodo6_inicio)
-                    idx6_fim = periodo_cols.index(periodo6_fim)
-                    periodo_visivel6 = periodo_cols[idx6_ini: idx6_fim + 1]
-                else:
-                    periodo_visivel6 = periodo_cols
+                periodo_visivel6 = recortar_periodo(periodo_cols)
 
                 nota_ano_em_andamento(periodo_visivel6)
 
@@ -2618,7 +2559,7 @@ if "df_eua_multi" in st.session_state:
                 with col_label6:
                     st.markdown(tx("**Vias de Entrada exibidas (cada uma vira um mini-gráfico)**"))
                 with col_btn6:
-                    if st.button("🔝 Restaurar Top 5", key=f"vias_grafico6_reset_btn_{combo_id}", use_container_width=True):
+                    if st.button("Restaurar Top 5", key=f"vias_grafico6_reset_btn_{combo_id}", use_container_width=True):
                         st.session_state[reset_flag_key6] = True
                         st.rerun()
 
