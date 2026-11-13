@@ -681,11 +681,42 @@ def _get_data(data_groups):
 
 
 def parse_report(response_json: dict, measure_num: int = 0) -> pd.DataFrame:
-    """Converte a resposta do runReport em DataFrame do pandas."""
+    """
+    Converte a resposta do runReport em DataFrame do pandas.
+
+    Se a tabela veio sem linhas (a API devolve row_groups/rowsNew vazios ou
+    nulos quando não há dado, ou quando a consulta estoura o limite),
+    retorna um DataFrame vazio com as colunas disponíveis em vez de falhar.
+    """
     table = response_json["dto"]["tables"][measure_num]
-    columns = _get_columns(table["column_groups"])
-    data = _get_data(table["row_groups"][0]["rowsNew"])
+    columns = _get_columns(table.get("column_groups") or [])
+    row_groups = table.get("row_groups") or []
+    rows = (row_groups[0] or {}).get("rowsNew") if row_groups else None
+    data = _get_data(rows or [])
     return pd.DataFrame(data, columns=columns)
+
+
+def response_error_message(response_json: dict) -> Optional[str]:
+    """
+    Diagnostica uma resposta do runReport que não trouxe tabelas utilizáveis.
+    Retorna uma mensagem descrevendo o problema (inclusive os erros que a
+    própria API informou) ou None se a resposta parece normal.
+    """
+    if not isinstance(response_json, dict):
+        return f"resposta inesperada da API: {str(response_json)[:200]}"
+    dto = response_json.get("dto")
+    if dto is None:
+        extras = {k: v for k, v in response_json.items() if k != "dto" and v}
+        detalhe = f" Detalhes: {str(extras)[:300]}" if extras else ""
+        return "a API não retornou dados (resposta sem 'dto')." + detalhe
+    erros = dto.get("errors") or []
+    if erros:
+        return "a API informou: " + "; ".join(str(e) for e in erros)[:400]
+    if dto.get("complexityThreshold"):
+        return "a consulta excedeu o limite de complexidade da API."
+    if not dto.get("tables"):
+        return "a API não retornou nenhuma tabela."
+    return None
 
 
 def get_table_label(response_json: dict, measure_num: int = 0) -> str:
