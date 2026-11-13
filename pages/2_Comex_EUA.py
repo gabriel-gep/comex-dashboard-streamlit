@@ -1232,45 +1232,64 @@ if "df_eua_multi" in st.session_state:
             pd.DataFrame({"Notas": notas}).to_excel(writer, sheet_name="Notas", index=False)
     excel_bytes = buffer.getvalue()
 
-    if len(dfs_por_medida) > 1:
-        tabs = st.tabs([label_pt(label) for label in dfs_por_medida.keys()])
-        for tab, (label, df) in zip(tabs, dfs_por_medida.items()):
-            with tab:
-                df_exibicao, periodo_cols = preparar_df_exibicao(df, label)
-                df_totais = preparar_df_totais(df, label)
-                renderizar_medida(
-                    df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
-                    df_exibicao=df_exibicao, periodo_cols=periodo_cols,
-                    df_totais=df_totais, excel_buffer=excel_bytes,
-                )
-    else:
-        label, df = next(iter(dfs_por_medida.items()))
-        df_exibicao, periodo_cols = preparar_df_exibicao(df, label)
-        df_totais = preparar_df_totais(df, label)
-        renderizar_medida(
-            df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
-            df_exibicao=df_exibicao, periodo_cols=periodo_cols,
-            df_totais=df_totais, excel_buffer=excel_bytes,
+    # ----------------------------------------------------------------
+    # Controles globais (topo dos resultados): métrica das tabelas e de
+    # TODOS os gráficos, e liga/desliga dos rótulos de dados.
+    # ----------------------------------------------------------------
+    tem_valor = "Customs Value" in dfs_por_medida
+    tem_qtd = "First Unit of Quantity" in dfs_por_medida
+
+    ctrl_metrica, ctrl_rotulos = st.columns([3, 2])
+    with ctrl_metrica:
+        if tem_valor and tem_qtd:
+            metrica_grafico = st.radio(
+                "Métrica (tabelas e gráficos)", ["Valor (USD)", "Quantidade"],
+                horizontal=True, key="metrica_grafico_toggle",
+            )
+        elif tem_valor:
+            metrica_grafico = "Valor (USD)"
+        else:
+            metrica_grafico = "Quantidade"
+    with ctrl_rotulos:
+        mostrar_rotulos = st.toggle(
+            "Rótulos de dados nos gráficos", value=True, key="rotulos_dados_toggle",
         )
+
+    def aplicar_rotulos_dados(fig):
+        """Liga ou desliga os rótulos de dados (valores sobre barras/pontos)
+        de uma figura, conforme o botão global. Devolve a própria figura."""
+        for tr in fig.data:
+            if tr.type == "bar":
+                horizontal = getattr(tr, "orientation", None) == "h"
+                if mostrar_rotulos:
+                    if tr.text is None:  # barras sem rótulo próprio ganham o valor
+                        tr.update(texttemplate="%{x:,.0f}" if horizontal else "%{y:,.0f}")
+                    tr.update(textposition="outside", cliponaxis=False)
+                else:
+                    tr.update(text=None, texttemplate=None)
+            elif tr.type == "scatter" and tr.mode and "lines" in tr.mode:
+                if mostrar_rotulos:
+                    tr.update(mode="lines+markers+text", texttemplate="%{y:,.0f}",
+                              textposition="top center")
+                else:
+                    tr.update(mode="lines+markers")
+        return fig
+
+    chave_medida = "Customs Value" if metrica_grafico == "Valor (USD)" else "First Unit of Quantity"
+    label, df = chave_medida, dfs_por_medida[chave_medida]
+    df_exibicao, periodo_cols = preparar_df_exibicao(df, label)
+    df_totais = preparar_df_totais(df, label)
+    renderizar_medida(
+        df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
+        df_exibicao=df_exibicao, periodo_cols=periodo_cols,
+        df_totais=df_totais, excel_buffer=excel_bytes,
+    )
 
     # ----------------------------------------------------------------
     # Gráficos -- um por via de entrada (default: top 5), com slicer de
     # período e botão para trocar entre Valor e Quantidade.
     # ----------------------------------------------------------------
     st.divider()
-
-    tem_valor = "Customs Value" in dfs_por_medida
-    tem_qtd = "First Unit of Quantity" in dfs_por_medida
-
-    if tem_valor and tem_qtd:
-        metrica_grafico = st.radio(
-            "Métrica dos gráficos", ["Valor (USD)", "Quantidade"],
-            horizontal=True, key="metrica_grafico_toggle",
-        )
-    elif tem_valor:
-        metrica_grafico = "Valor (USD)"
-    else:
-        metrica_grafico = "Quantidade"
 
     chave_medida = "Customs Value" if metrica_grafico == "Valor (USD)" else "First Unit of Quantity"
     df_fonte = dfs_por_medida.get(chave_medida)
@@ -1670,7 +1689,7 @@ if "df_eua_multi" in st.session_state:
                                 fig.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 fig.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 chart_key = "via_chart_" + re.sub(r"\W+", "_", str(via).lower())
-                                st.plotly_chart(fig, use_container_width=True, key=chart_key)
+                                st.plotly_chart(aplicar_rotulos_dados(fig), use_container_width=True, key=chart_key)
 
                 # ------------------------------------------------------
                 # Gráfico 2 -- todas as vias de entrada combinadas num único gráfico
@@ -1764,7 +1783,7 @@ if "df_eua_multi" in st.session_state:
                     )
                     fig2.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
                     fig2.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                    st.plotly_chart(fig2, use_container_width=True, key=f"grafico2_combinado_{combo_id}")
+                    st.plotly_chart(aplicar_rotulos_dados(fig2), use_container_width=True, key=f"grafico2_combinado_{combo_id}")
             else:
                 st.info(
                     tx("Nenhuma quebra por via de entrada nos dados retornados para "
@@ -1911,7 +1930,7 @@ if "df_eua_multi" in st.session_state:
                         )
                         fig3.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                         fig3.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                        st.plotly_chart(fig3, use_container_width=True, key=f"grafico3_pct_pais_{combo_id}")
+                        st.plotly_chart(aplicar_rotulos_dados(fig3), use_container_width=True, key=f"grafico3_pct_pais_{combo_id}")
                 else:
                     st.info("Sem valores no período selecionado para calcular percentuais.")
             else:
@@ -2048,7 +2067,7 @@ if "df_eua_multi" in st.session_state:
                                 fig4.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 fig4.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 chart4_key = "grafico4_" + re.sub(r"\W+", "_", str(via).lower()) + f"_{combo_id}"
-                                st.plotly_chart(fig4, use_container_width=True, key=chart4_key)
+                                st.plotly_chart(aplicar_rotulos_dados(fig4), use_container_width=True, key=chart4_key)
             else:
                 st.info(
                     tx("Este gráfico exige quebra por país E por via de entrada ao "
@@ -2365,7 +2384,7 @@ if "df_eua_multi" in st.session_state:
                         )
                         fig_modal.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
                         fig_modal.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                        st.plotly_chart(fig_modal, use_container_width=True, key=f"grafico_modal_{combo_id}")
+                        st.plotly_chart(aplicar_rotulos_dados(fig_modal), use_container_width=True, key=f"grafico_modal_{combo_id}")
 
             # ------------------------------------------------------------
             # Gráfico 5 -- volume total (valor absoluto) por país, barras
@@ -2451,7 +2470,7 @@ if "df_eua_multi" in st.session_state:
                     )
                     fig5.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                     fig5.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                    st.plotly_chart(fig5, use_container_width=True, key=f"grafico5_pais_{combo_id}")
+                    st.plotly_chart(aplicar_rotulos_dados(fig5), use_container_width=True, key=f"grafico5_pais_{combo_id}")
                 else:
                     st.info("Sem valores no período selecionado para exibir este gráfico.")
             else:
@@ -2584,7 +2603,7 @@ if "df_eua_multi" in st.session_state:
                                 fig6.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 fig6.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 chart6_key = "grafico6_" + re.sub(r"\W+", "_", str(via).lower()) + f"_{combo_id}"
-                                st.plotly_chart(fig6, use_container_width=True, key=chart6_key)
+                                st.plotly_chart(aplicar_rotulos_dados(fig6), use_container_width=True, key=chart6_key)
             else:
                 st.info(
                     tx("Este gráfico exige quebra por país E por via de entrada ao "
