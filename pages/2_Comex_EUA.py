@@ -1289,11 +1289,13 @@ if "df_eua_multi" in st.session_state:
         import math
         MAX_ROTULOS = 24          # alvo de rótulos por série em gráficos densos
         MAX_ROTULOS_AGRUPADO = 50  # alvo total em barras agrupadas (várias séries)
-        FONTE_ROTULO = dict(size=11, color="#042373")
+        FONTE_ROTULO = dict(size=13, color="#000000")
 
         def _fmt(v):
             try:
-                return f"{float(v):,.0f}" if v is not None and v == v else ""
+                if v is None or v != v or float(v) == 0:
+                    return ""  # sem rótulo para valor zero (ou ausente)
+                return f"{float(v):,.0f}"
             except (TypeError, ValueError):
                 return ""
 
@@ -1344,9 +1346,12 @@ if "df_eua_multi" in st.session_state:
                 tr.update(
                     text=textos, texttemplate=None, textposition="outside",
                     textangle=-90, textfont=FONTE_ROTULO, cliponaxis=False,
+                    constraintext="none",  # o Plotly encolhia o texto p/ caber na barra
                 )
             if ymax > 0:  # folga no topo para os rótulos verticais
-                fig.update_yaxes(range=[0, ymax * 1.3])
+                fig.update_yaxes(range=[0, ymax * 1.35])
+                # garante o tamanho mínimo do texto (sem isso o Plotly reduz a fonte)
+                fig.update_layout(uniformtext=dict(minsize=FONTE_ROTULO["size"], mode="show"))
 
         # Linhas: rótulos espaçados nos pontos.
         for tr in fig.data:
