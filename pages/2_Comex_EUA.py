@@ -1287,8 +1287,9 @@ if "df_eua_multi" in st.session_state:
         cada N), na vertical e acima da barra, para não poluir. Barras que
         já têm rótulo próprio (percentuais, países) mantêm o formato."""
         import math
-        MAX_ROTULOS = 14          # alvo de rótulos por série em gráficos densos
-        MAX_ROTULOS_AGRUPADO = 30  # alvo total em barras agrupadas (várias séries)
+        MAX_ROTULOS = 24          # alvo de rótulos por série em gráficos densos
+        MAX_ROTULOS_AGRUPADO = 50  # alvo total em barras agrupadas (várias séries)
+        FONTE_ROTULO = dict(size=11, color="#042373")
 
         def _fmt(v):
             try:
@@ -1328,7 +1329,7 @@ if "df_eua_multi" in st.session_state:
             compartilhado = total_pts > n          # várias barras por categoria
             m = len(barras_v) if compartilhado else 1
             if compartilhado:
-                passo = max(m, math.ceil(n * m / MAX_ROTULOS_AGRUPADO)) if n * m > MAX_ROTULOS_AGRUPADO else 1
+                passo = max(1, math.ceil(n * m / MAX_ROTULOS_AGRUPADO))
             else:
                 passo = max(1, math.ceil(n / MAX_ROTULOS))
             ymax = 0.0
@@ -1342,10 +1343,10 @@ if "df_eua_multi" in st.session_state:
                         ymax = max(ymax, float(y))
                 tr.update(
                     text=textos, texttemplate=None, textposition="outside",
-                    textangle=-90, textfont=dict(size=9), cliponaxis=False,
+                    textangle=-90, textfont=FONTE_ROTULO, cliponaxis=False,
                 )
             if ymax > 0:  # folga no topo para os rótulos verticais
-                fig.update_yaxes(range=[0, ymax * 1.22])
+                fig.update_yaxes(range=[0, ymax * 1.3])
 
         # Linhas: rótulos espaçados nos pontos.
         for tr in fig.data:
@@ -1355,7 +1356,7 @@ if "df_eua_multi" in st.session_state:
                 tr.update(
                     mode="lines+markers+text",
                     text=[_fmt(y) if k % passo == 0 else "" for k, y in enumerate(tr.y)],
-                    textposition="top center", textfont=dict(size=9),
+                    textposition="top center", textfont=FONTE_ROTULO,
                 )
         return fig
 
