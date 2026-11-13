@@ -254,6 +254,88 @@ with st.expander("Utilização do aplicativo"):
 """))
 
 # --------------------------------------------------------------------
+# Vias especiais do Census: não são portos reais (ver textos abaixo).
+# Ficam fora do Top 5 automático, ganham um "ⓘ" ao lado do título dos
+# gráficos e uma dica ao passar o mouse sobre elas nos seletores.
+# --------------------------------------------------------------------
+import json as _json
+from html import escape as _html_escape
+
+VIAS_ESPECIAIS_INFO = {
+    "low-valued": (
+        "Transações de baixo valor (até US$ 2.500 em exportações e US$ 2.000 em "
+        "importações). O Census não recebe esses embarques um a um: estima o total "
+        "por país com fatores históricos. Não é um porto real."
+    ),
+    "mail shipments": (
+        "Exportações enviadas pelo correio. Não passam por um porto e esta "
+        "categoria só existe em exportação."
+    ),
+    "vessels under their own power": (
+        "Embarcações que cruzam a fronteira por meios próprios. É um agrupamento "
+        "especial do Census, não um porto."
+    ),
+}
+
+
+def info_via_especial(nome):
+    """Texto explicativo se `nome` é uma via especial do Census; senão None."""
+    n = str(nome).lower()
+    for chave, texto in VIAS_ESPECIAIS_INFO.items():
+        if chave in n:
+            return texto
+    return None
+
+
+def titulo_via_html(nome, prefixo=""):
+    """Título de gráfico por via, com "ⓘ" (dica ao passar o mouse) nas especiais."""
+    info = info_via_especial(nome)
+    icone = (
+        f'<span class="info-via" data-tip="{_html_escape(info, quote=True)}">ⓘ</span>'
+        if info else ""
+    )
+    return f'<div class="titulo-via">{_html_escape(prefixo + str(nome))}{icone}</div>'
+
+
+st.markdown(
+    """
+    <style>
+    .titulo-via { font-weight: 600; font-size: 1.05rem; color: #31333F; margin: 0.4rem 0 0.1rem 0; }
+    .info-via { position: relative; display: inline-block; margin-left: 0.4rem; cursor: help;
+                color: #042373; font-weight: 700; }
+    .info-via:hover::after {
+        content: attr(data-tip); position: absolute; left: 0; top: 1.6em; z-index: 1000;
+        width: 280px; padding: 0.5rem 0.65rem; background: #042373; color: #fff;
+        font-size: 0.8rem; font-weight: 400; line-height: 1.35; border-radius: 6px;
+        white-space: normal;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Dica ao passar o mouse sobre as vias especiais nos seletores (opções da lista
+# e "chips" já selecionados). O Streamlit não oferece dica por opção, então um
+# pequeno script preenche o atributo `title` desses elementos.
+st.html(
+    "<script>(function(){"
+    "const INFO = " + _json.dumps(VIAS_ESPECIAIS_INFO, ensure_ascii=False) + ";"
+    "function aplicar(){"
+    "document.querySelectorAll('li[role=\"option\"], [data-baseweb=\"tag\"]').forEach(function(el){"
+    "const t=(el.textContent||'').toLowerCase();"
+    "for (const k in INFO){ if (t.indexOf(k)>=0){ if (el.title!==INFO[k]) el.title=INFO[k]; break; } }"
+    "});}"
+    "if(!window.__viaInfoObs){"
+    "let agendado=false;"
+    "window.__viaInfoObs=new MutationObserver(function(){"
+    "if(agendado) return; agendado=true;"
+    "requestAnimationFrame(function(){agendado=false; aplicar();});});"
+    "window.__viaInfoObs.observe(document.body,{childList:true,subtree:true});}"
+    "aplicar();})();</script>",
+    unsafe_allow_javascript=True,
+)
+
+# --------------------------------------------------------------------
 # Sidebar - filtros
 # --------------------------------------------------------------------
 # O Streamlit escreve "Press Ctrl+Enter to apply" dentro do campo de texto e não
@@ -1738,7 +1820,10 @@ if "df_eua_multi" in st.session_state:
                 # -- sem isso, uma via zerada podia "completar a lista" só
                 # porque não havia 5 vias com movimento suficiente.
                 vias_com_total_real = df_via[df_via["_total"] > 0][via_col].tolist()
-                top5_default = sorted(vias_com_total_real[:5])
+                # Vias especiais do Census (baixo valor, correio...) não são
+                # portos: ficam fora do Top 5 automático (continuam na lista).
+                _vias_reais = [v for v in vias_com_total_real if info_via_especial(v) is None]
+                top5_default = sorted((_vias_reais or vias_com_total_real)[:5])
                 todas_vias_alfa = sorted(todas_vias)
 
                 ms_key = f"vias_grafico_multiselect_{combo_id}"
@@ -1924,12 +2009,12 @@ if "df_eua_multi" in st.session_state:
                                                 hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                                             )
                                         )
+                                st.markdown(titulo_via_html(via), unsafe_allow_html=True)
                                 fig.update_layout(
-                                    title=str(via),
-                                    height=320,
+                                    height=290,
                                     plot_bgcolor="#DBF7FF",
                                     paper_bgcolor="white",
-                                    margin=dict(t=50, b=40, l=40, r=20),
+                                    margin=dict(t=15, b=40, l=40, r=20),
                                     showlegend=False,
                                 )
                                 fig.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
@@ -2219,7 +2304,7 @@ if "df_eua_multi" in st.session_state:
                         cols4 = st.columns(cols_por_linha4)
                         for j, via in enumerate(vias_selecionadas4[i:i + cols_por_linha4]):
                             with cols4[j]:
-                                st.markdown(tx(f"**Via de Entrada: {via}**"))
+                                st.markdown(titulo_via_html(via, prefixo=tx("Via de Entrada: ")), unsafe_allow_html=True)
 
                                 df_via_pais = df_fonte_grafico[df_fonte_grafico[via_col] == via]
                                 df_via_pais = (
@@ -2726,7 +2811,7 @@ if "df_eua_multi" in st.session_state:
                         cols6 = st.columns(cols_por_linha6)
                         for j, via in enumerate(vias_selecionadas6[i:i + cols_por_linha6]):
                             with cols6[j]:
-                                st.markdown(tx(f"**Via de Entrada: {via}**"))
+                                st.markdown(titulo_via_html(via, prefixo=tx("Via de Entrada: ")), unsafe_allow_html=True)
 
                                 df_via_pais6 = df_fonte_grafico[df_fonte_grafico[via_col] == via]
                                 df_via_pais6 = (
