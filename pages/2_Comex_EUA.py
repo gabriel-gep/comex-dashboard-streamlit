@@ -1789,9 +1789,9 @@ if "df_eua_multi" in st.session_state:
                 )
 
         titulo_grafico1 = (
-            tx(f"Volume Importado em {metrica_grafico}: Realizado vs Projetado")
+            tx(f"Evolução no tempo em {metrica_grafico}: Realizado vs Projetado")
             if monthly else
-            tx(f"Volume Importado em {metrica_grafico}: Realizado")
+            tx(f"Evolução no tempo em {metrica_grafico}: Realizado")
         )
         st.markdown(
             f"""
@@ -1889,7 +1889,7 @@ if "df_eua_multi" in st.session_state:
                 top5_paises_default = sorted(_dp[_dp["_total"] > 0][country_col].tolist()[:5])
                 todos_paises_alfa = sorted(ranking_paises)
 
-            MAX_VIAS_GLOBAL = 8
+            MAX_VIAS_GLOBAL = 6
             MAX_PAISES_GLOBAL = 12
             ms_key_vias = f"vias_global_multiselect_{combo_id}"
             ms_key_paises = f"paises_global_multiselect_{combo_id}"
@@ -1928,8 +1928,8 @@ if "df_eua_multi" in st.session_state:
                                 key=ms_key_paises,
                                 max_selections=MAX_PAISES_GLOBAL,
                                 help=(
-                                    "No gráfico de % por país, os países não selecionados "
-                                    f"entram somados em \"Outros\". Máximo de {MAX_PAISES_GLOBAL} por vez."
+                                    "Usado na visão \"Por país\" da evolução no tempo (os demais "
+                                    f"entram em \"Outros\"). Máximo de {MAX_PAISES_GLOBAL} por vez."
                                 ),
                             )
 
@@ -1945,6 +1945,21 @@ if "df_eua_multi" in st.session_state:
 
             def cor_pais(nome):
                 return COR_OUTROS if nome == "Outros" else _cor_pais_map.get(nome, COR_OUTROS)
+
+            opcoes_visao = ["Total"]
+            if via_col:
+                opcoes_visao.append("Por via")
+            if country_col:
+                opcoes_visao.append("Por país")
+            visao_evolucao = st.radio(
+                "Visão da evolução no tempo",
+                options=opcoes_visao,
+                index=opcoes_visao.index("Por via") if "Por via" in opcoes_visao else 0,
+                horizontal=True,
+                key=f"visao_evolucao_{combo_id}",
+                help=tx("Total: soma de tudo. Por via: um mini-gráfico por via (com projeção no modo Mensal). "
+                        "Por país: barras empilhadas pelos países escolhidos no painel de filtros."),
+            )
 
             if via_col:
                 df_via = (
@@ -1966,7 +1981,9 @@ if "df_eua_multi" in st.session_state:
 
                 vias_selecionadas = vias_global
 
-                if not vias_selecionadas:
+                if visao_evolucao != "Por via":
+                    pass
+                elif not vias_selecionadas:
                     st.info(tx("Selecione ao menos uma via de entrada para exibir os gráficos."))
                 else:
                     # Projeção só faz sentido no Mensal, e só quando a
@@ -2140,60 +2157,7 @@ if "df_eua_multi" in st.session_state:
                                 chart_key = "via_chart_" + re.sub(r"\W+", "_", str(via).lower())
                                 st.plotly_chart(aplicar_rotulos_dados(fig), use_container_width=True, key=chart_key)
 
-                # ------------------------------------------------------
-                # Gráfico 2 -- todas as vias de entrada combinadas num único gráfico
-                # (padrão do dash Brasil: "Volume total transacionado por URF")
-                # ------------------------------------------------------
-                st.divider()
-                st.markdown(
-                    tx(f"""
-                    <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                        Volume total transacionado em {metrica_grafico} (Realizado) por Via de Entrada
-                    </h2>
-                    """),
-                    unsafe_allow_html=True,
-                )
-                legenda_unidade_hts()
-
-                periodo_visivel2 = recortar_periodo(periodo_cols)
-
-                vias_selecionadas2 = vias_global
-
-                if not vias_selecionadas2:
-                    st.info(tx("Selecione ao menos uma via de entrada para exibir o gráfico."))
-                else:
-                    fig2 = go.Figure()
-                    for i, via in enumerate(vias_selecionadas2):
-                        row = df_via[df_via[via_col] == via].iloc[0]
-                        valores = [row[c] for c in periodo_visivel2]
-                        fig2.add_trace(
-                            go.Bar(
-                                x=[rotulo_periodo(p) for p in periodo_visivel2],
-                                y=valores,
-                                name=str(via),
-                                marker_color=cor_via.get(via, COR_OUTROS),
-                                hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
-                            )
-                        )
-                    fig2.update_layout(
-                        barmode="group",
-                        xaxis_title="Período",
-                        yaxis_title=titulo_eixo_metrica,
-                        plot_bgcolor="#DBF7FF",
-                        paper_bgcolor="white",
-                        height=600,
-                        legend_title=tx("Via de Entrada"),
-                        legend=dict(
-                            orientation="h", yanchor="top", y=-0.2,
-                            xanchor="center", x=0.5,
-                            bgcolor="white", bordercolor="#042373", borderwidth=1,
-                        ),
-                        margin=dict(t=60, b=140, l=50, r=50),
-                    )
-                    fig2.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                    fig2.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                    st.plotly_chart(aplicar_rotulos_dados(fig2), use_container_width=True, key=f"grafico2_combinado_{combo_id}")
-            else:
+            elif visao_evolucao == "Por via":
                 st.info(
                     tx("Nenhuma quebra por via de entrada nos dados retornados para "
                     "esta consulta -- isso costuma acontecer quando os filtros "
@@ -2204,113 +2168,50 @@ if "df_eua_multi" in st.session_state:
                     "de anos ou os países/HTS selecionados.")
                 )
 
-            # ------------------------------------------------------------
-            # Gráfico 3 -- porcentagem por país (top 5 + "Outros"), em barras
-            # (equivalente ao gráfico de pizza/rosca do dash Brasil).
-            # ------------------------------------------------------------
-            st.divider()
-            st.markdown(
-                tx(f"""
-                <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                    Porcentagem por País de {metrica_grafico} (Realizado) Importado
-                </h2>
-                """),
-                unsafe_allow_html=True,
-            )
-            legenda_unidade_hts()
-
-            country_col = None
-            for c in label_cols:
-                valores = df_fonte_grafico[c].dropna().astype(str)
-                if len(valores) == 0:
-                    continue
-                if valores.isin(COUNTRY_CODES.keys()).mean() >= 0.5:
-                    country_col = c
-                    break
-
-            if country_col:
-                periodo_visivel3 = recortar_periodo(periodo_cols)
-
-                nota_ano_em_andamento(periodo_visivel3)
-
-                df_pais = (
-                    df_fonte_grafico.groupby(country_col, as_index=False)[periodo_visivel3]
-                    .sum(min_count=1)
-                )
-                df_pais["_valor"] = df_pais[periodo_visivel3].sum(axis=1, skipna=True)
-                df_pais = df_pais.sort_values("_valor", ascending=False).reset_index(drop=True)
-
-                total_geral = df_pais["_valor"].sum()
-
-                if total_geral and total_geral > 0:
-                    todos_paises = df_pais[country_col].tolist()
-                    top5_default3 = sorted(todos_paises[:5])
-                    todos_paises_alfa = sorted(todos_paises)
-
-                    paises_selecionados = paises_global
-
-                    if not paises_selecionados:
-                        st.info("Selecione ao menos um país para exibir o gráfico.")
-                    else:
-                        df_selecionados = df_pais[df_pais[country_col].isin(paises_selecionados)]
-                        df_selecionados = df_selecionados.sort_values("_valor", ascending=False)
-
-                        labels = df_selecionados[country_col].tolist()
-                        valores_abs = df_selecionados["_valor"].tolist()
-
-                        resto_valor = total_geral - sum(valores_abs)
-                        if resto_valor > 0:
-                            labels.append("Outros")
-                            valores_abs.append(resto_valor)
-
-                        percentuais = [v / total_geral * 100 for v in valores_abs]
-
-                        cores = [cor_pais(l) for l in labels]
-
-                        # Barras horizontais, maior no topo -- por isso a
-                        # ordem é invertida antes de plotar (Plotly desenha
-                        # a primeira categoria embaixo por padrão).
-                        labels_h = labels[::-1]
-                        percentuais_h = percentuais[::-1]
-                        cores_h = cores[::-1]
-
-                        fig3 = go.Figure(
-                            go.Bar(
-                                x=percentuais_h,
-                                y=labels_h,
-                                orientation="h",
-                                marker_color=cores_h,
-                                text=[f"{p:.1f}%" for p in percentuais_h],
-                                textposition="outside",
-                                cliponaxis=False,
-                                hovertemplate="%{y}<br>%{x:.2f}%<extra></extra>",
-                            )
-                        )
-                        fig3.update_layout(
-                            xaxis_title=tx("% do total importado"),
-                            xaxis=dict(range=[0, max(percentuais_h) * 1.2]),
-                            yaxis_title="País",
-                            yaxis=dict(categoryorder="array", categoryarray=labels_h),
-                            plot_bgcolor="#DBF7FF",
-                            paper_bgcolor="white",
-                            height=500,
-                            showlegend=False,
-                            margin=dict(t=50, b=50, l=50, r=90),
-                        )
-                        fig3.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                        fig3.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                        st.plotly_chart(aplicar_rotulos_dados(fig3), use_container_width=True, key=f"grafico3_pct_pais_{combo_id}")
+            # Visões "Total" e "Por país" da evolução no tempo
+            if visao_evolucao in ("Total", "Por país"):
+                periodo_v = recortar_periodo(periodo_cols)
+                nota_ano_em_andamento(periodo_v)
+                x_rot = [rotulo_periodo(p) for p in periodo_v]
+                figv = go.Figure()
+                if visao_evolucao == "Total":
+                    tot = df_fonte_grafico[periodo_v].sum(min_count=1)
+                    figv.add_trace(go.Bar(
+                        x=x_rot, y=tot.tolist(), name="Realizado",
+                        marker_color=COR_REALIZADO,
+                        hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                    ))
                 else:
-                    st.info("Sem valores no período selecionado para calcular percentuais.")
-            else:
-                st.info(
-                    tx("Nenhuma quebra por país nos dados retornados para esta "
-                    "consulta -- isso costuma acontecer quando apenas um país "
-                    "foi selecionado no filtro (não há o que separar) ou quando "
-                    "há poucos registros no período. Selecione mais de um país "
-                    "de origem, ou deixe o filtro vazio para trazer todos, e "
-                    "tente novamente.")
+                    if not paises_global:
+                        st.info("Selecione ao menos um país no painel de filtros.")
+                    agr = df_fonte_grafico.groupby(country_col)[periodo_v].sum(min_count=1)
+                    for pais in sorted(paises_global, key=lambda c: -agr.loc[c].sum() if c in agr.index else 0):
+                        if pais not in agr.index:
+                            continue
+                        figv.add_trace(go.Bar(
+                            x=x_rot, y=agr.loc[pais].tolist(), name=str(pais),
+                            marker_color=cor_pais(pais),
+                            hovertemplate="%{fullData.name}<br>%{x}<br>%{y:,.0f}<extra></extra>",
+                        ))
+                    resto = agr.drop(index=[c for c in paises_global if c in agr.index]).sum(min_count=1)
+                    if len(resto) and resto.fillna(0).sum() > 0:
+                        figv.add_trace(go.Bar(
+                            x=x_rot, y=resto.tolist(), name="Outros",
+                            marker_color=COR_OUTROS,
+                            hovertemplate="Outros<br>%{x}<br>%{y:,.0f}<extra></extra>",
+                        ))
+                figv.update_layout(
+                    barmode="stack",
+                    xaxis_title="Período", yaxis_title=titulo_eixo_metrica,
+                    plot_bgcolor="#DBF7FF", paper_bgcolor="white", height=520,
+                    showlegend=(visao_evolucao == "Por país"),
+                    legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
+                    margin=dict(t=30, b=110, l=60, r=30),
                 )
+                figv.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                figv.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                st.plotly_chart(aplicar_rotulos_dados(figv), use_container_width=True,
+                                key=f"evolucao_{visao_evolucao}_{combo_id}")
 
             # ------------------------------------------------------------
             # Gráfico 4 -- porcentagem por país, um mini-gráfico por via de entrada
@@ -2321,7 +2222,7 @@ if "df_eua_multi" in st.session_state:
             st.markdown(
                 tx(f"""
                 <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                    Porcentagem por País de {metrica_grafico} (Realizado) Importado Separado por Via de Entrada
+                    Composição por País em cada Via de Entrada ({metrica_grafico}, Realizado): % do total da via e valor
                 </h2>
                 """),
                 unsafe_allow_html=True,
@@ -2380,21 +2281,22 @@ if "df_eua_multi" in st.session_state:
                                         y=labels4_h,
                                         orientation="h",
                                         marker_color=cores4_h,
-                                        text=[f"{p:.1f}%" for p in percentuais4_h],
+                                        text=[f"{p:.1f}% · {v:,.0f}" for p, v in zip(percentuais4_h, valores4[::-1])],
                                         textposition="outside",
-                                cliponaxis=False,
-                                        hovertemplate="%{y}<br>%{x:.2f}%<extra></extra>",
+                                        cliponaxis=False,
+                                        customdata=valores4[::-1],
+                                        hovertemplate="%{y}<br>%{x:.2f}% do total da via<br>%{customdata:,.0f}<extra></extra>",
                                     )
                                 )
                                 fig4.update_layout(
                                     xaxis_title=tx("% do total nessa via de entrada"),
-                                    xaxis=dict(range=[0, max(percentuais4_h) * 1.2]),
+                                    xaxis=dict(range=[0, max(percentuais4_h) * 1.45]),
                                     yaxis=dict(categoryorder="array", categoryarray=labels4_h),
                                     plot_bgcolor="#DBF7FF",
                                     paper_bgcolor="white",
                                     height=350,
                                     showlegend=False,
-                                    margin=dict(t=30, b=40, l=100, r=70),
+                                    margin=dict(t=30, b=40, l=100, r=110),
                                 )
                                 fig4.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 fig4.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
@@ -2736,7 +2638,7 @@ if "df_eua_multi" in st.session_state:
                         go.Bar(
                             x=labels5,
                             y=valores5,
-                            marker_color="#042373",
+                            marker_color=COR_PROJETADO,
                             text=[f"{v:,.0f}" if v else "" for v in valores5],
                             textposition="outside",
                             textangle=-90,
@@ -2787,102 +2689,4 @@ if "df_eua_multi" in st.session_state:
                     tx("Nenhuma quebra por país nos dados retornados para esta "
                     "consulta -- selecione mais de um país de origem, ou "
                     "deixe o filtro vazio para trazer todos, e tente novamente.")
-                )
-
-            # ------------------------------------------------------------
-            # Gráfico 6 -- volume total (valor absoluto) por país, um
-            # mini-gráfico por via de entrada, corte Top 5 + "Outros" (mesma lógica
-            # do Gráfico 4, mas com valor absoluto -- equivalente ao "Volume
-            # total transacionado por País separado por URF" do Brasil).
-            # Barras horizontais (diferente do Brasil, que usa verticais).
-            # ------------------------------------------------------------
-            st.divider()
-            st.markdown(
-                tx(f"""
-                <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                    Volume total transacionado em {metrica_grafico} (Realizado) por País Separado por Via de Entrada
-                </h2>
-                <p style='text-align:center; font-size:0.85rem; color:#666; margin:0;'>
-                    Top 5 + "Outros", por via de entrada
-                </p>
-                """),
-                unsafe_allow_html=True,
-            )
-            legenda_unidade_hts()
-
-            if via_col and country_col:
-                periodo_visivel6 = recortar_periodo(periodo_cols)
-
-                nota_ano_em_andamento(periodo_visivel6)
-
-                vias_selecionadas6 = vias_global
-
-                if not vias_selecionadas6:
-                    st.info(tx("Selecione ao menos uma via de entrada para exibir os gráficos."))
-                else:
-                    cols_por_linha6 = 2
-                    for i in range(0, len(vias_selecionadas6), cols_por_linha6):
-                        cols6 = st.columns(cols_por_linha6)
-                        for j, via in enumerate(vias_selecionadas6[i:i + cols_por_linha6]):
-                            with cols6[j]:
-                                st.markdown(titulo_via_html(via, prefixo=tx("Via de Entrada: ")), unsafe_allow_html=True)
-
-                                df_via_pais6 = df_fonte_grafico[df_fonte_grafico[via_col] == via]
-                                df_via_pais6 = (
-                                    df_via_pais6.groupby(country_col, as_index=False)[periodo_visivel6]
-                                    .sum(min_count=1)
-                                )
-                                df_via_pais6["_valor"] = df_via_pais6[periodo_visivel6].sum(axis=1, skipna=True)
-                                df_via_pais6 = df_via_pais6.sort_values("_valor", ascending=False).reset_index(drop=True)
-                                total_via6 = df_via_pais6["_valor"].sum()
-
-                                if not total_via6 or total_via6 <= 0:
-                                    st.info(tx("Sem dados nessa via de entrada no período selecionado."))
-                                    continue
-
-                                top5_via6 = df_via_pais6.head(5)
-                                outros6 = df_via_pais6["_valor"].iloc[5:].sum()
-
-                                labels6 = top5_via6[country_col].tolist()
-                                valores6 = top5_via6["_valor"].tolist()
-                                if outros6 > 0:
-                                    labels6.append("Outros")
-                                    valores6.append(outros6)
-
-                                # Horizontal, maior no topo -- inverte antes de plotar.
-                                labels6_h = labels6[::-1]
-                                valores6_h = valores6[::-1]
-
-                                fig6 = go.Figure(
-                                    go.Bar(
-                                        x=valores6_h,
-                                        y=labels6_h,
-                                        orientation="h",
-                                        marker_color="#042373",
-                                        text=[f"{v:,.0f}" for v in valores6_h],
-                                        textposition="outside",
-                                cliponaxis=False,
-                                        hovertemplate="%{y}<br>%{x:,.0f}<extra></extra>",
-                                    )
-                                )
-                                fig6.update_layout(
-                                    xaxis_title=titulo_eixo_metrica,
-                                    xaxis=dict(range=[0, max(valores6_h) * 1.2]),
-                                    yaxis=dict(categoryorder="array", categoryarray=labels6_h),
-                                    plot_bgcolor="#DBF7FF",
-                                    paper_bgcolor="white",
-                                    height=350,
-                                    showlegend=False,
-                                    margin=dict(t=30, b=40, l=100, r=80),
-                                )
-                                fig6.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                                fig6.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
-                                chart6_key = "grafico6_" + re.sub(r"\W+", "_", str(via).lower()) + f"_{combo_id}"
-                                st.plotly_chart(aplicar_rotulos_dados(fig6), use_container_width=True, key=chart6_key)
-            else:
-                st.info(
-                    tx("Este gráfico exige quebra por país E por via de entrada ao "
-                    "mesmo tempo nos dados retornados -- selecione mais de um "
-                    "país e mais de uma via de entrada nos filtros (ou deixe ambos vazios "
-                    "para trazer todos) e tente novamente.")
                 )
