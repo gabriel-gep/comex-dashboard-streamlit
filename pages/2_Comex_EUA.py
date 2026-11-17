@@ -1486,11 +1486,17 @@ if "df_eua_multi" in st.session_state:
         MAX_ROTULOS_AGRUPADO = 50  # alvo total em barras agrupadas (várias séries)
         FONTE_ROTULO = dict(size=13, color="#000000")
 
+        # Padrão visual: sem linhas de grade; separadores brasileiros
+        # (ponto nos milhares, vírgula nos decimais) em rótulos, eixos e hovers.
+        fig.update_xaxes(showgrid=False)
+        fig.update_yaxes(showgrid=False)
+        fig.update_layout(separators=",.")
+
         def _fmt(v):
             try:
                 if v is None or v != v or float(v) == 0:
                     return ""  # sem rótulo para valor zero (ou ausente)
-                return f"{float(v):,.0f}"
+                return f"{float(v):,.0f}".replace(",", ".")
             except (TypeError, ValueError):
                 return ""
 
@@ -1661,8 +1667,8 @@ if "df_eua_multi" in st.session_state:
         if (not monthly) and mes and str(ano_atual) in [str(p) for p in periodos]:
             st.caption(
                 f"ℹ️ O período selecionado inclui {ano_atual}, ano em andamento: "
-                f"dados apenas até {mes}/{ano_atual}{fonte} (acumulado parcial, "
-                "não o ano completo)."
+                f"o total de {ano_atual} soma os meses publicados até {mes}/{ano_atual}"
+                f"{fonte}, com {mes} incluso (acumulado parcial, não o ano completo)."
             )
 
     if df_fonte is not None:
@@ -1813,7 +1819,8 @@ if "df_eua_multi" in st.session_state:
                     texto_aviso_anual += (
                         f"  \n⚠️ **{ano_atual}** é o ano em andamento: o total "
                         f"reflete apenas os meses publicados, até "
-                        f"**{ate_mes_ytd}/{ano_atual}** (acumulado parcial, não o ano completo)."
+                        f"**{ate_mes_ytd}/{ano_atual}** (com **{ate_mes_ytd}** incluso na soma; "
+                        "acumulado parcial, não o ano completo)."
                     )
                 else:
                     texto_aviso_anual += (
@@ -1875,7 +1882,7 @@ if "df_eua_multi" in st.session_state:
                 # Vias especiais do Census (baixo valor, correio...) não são
                 # portos: ficam fora do Top 5 automático.
                 _normais = [v for v in _reais if info_via_especial(v) is None]
-                top5_vias_default = sorted((_normais or _reais)[:5])
+                top5_vias_default = sorted((_normais or _reais)[:6])
                 todas_vias_alfa = sorted(_dv[via_col].tolist())
 
             if country_col:
@@ -1958,7 +1965,7 @@ if "df_eua_multi" in st.session_state:
                 horizontal=True,
                 key=f"visao_evolucao_{combo_id}",
                 help=tx("Total: soma de tudo. Por via: um mini-gráfico por via (com projeção no modo Mensal). "
-                        "Por país: barras empilhadas pelos países escolhidos no painel de filtros."),
+                        "Por país: um mini-gráfico por país escolhido no painel de filtros."),
             )
 
             if via_col:
@@ -1976,7 +1983,7 @@ if "df_eua_multi" in st.session_state:
                 # Vias especiais do Census (baixo valor, correio...) não são
                 # portos: ficam fora do Top 5 automático (continuam na lista).
                 _vias_reais = [v for v in vias_com_total_real if info_via_especial(v) is None]
-                top5_default = sorted((_vias_reais or vias_com_total_real)[:5])
+                top5_default = sorted((_vias_reais or vias_com_total_real)[:6])
                 todas_vias_alfa = sorted(todas_vias)
 
                 vias_selecionadas = vias_global
@@ -2169,49 +2176,52 @@ if "df_eua_multi" in st.session_state:
                 )
 
             # Visões "Total" e "Por país" da evolução no tempo
-            if visao_evolucao in ("Total", "Por país"):
+            if visao_evolucao == "Total":
                 periodo_v = recortar_periodo(periodo_cols)
                 nota_ano_em_andamento(periodo_v)
-                x_rot = [rotulo_periodo(p) for p in periodo_v]
-                figv = go.Figure()
-                if visao_evolucao == "Total":
-                    tot = df_fonte_grafico[periodo_v].sum(min_count=1)
-                    figv.add_trace(go.Bar(
-                        x=x_rot, y=tot.tolist(), name="Realizado",
-                        marker_color=COR_REALIZADO,
-                        hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
-                    ))
-                else:
-                    if not paises_global:
-                        st.info("Selecione ao menos um país no painel de filtros.")
-                    agr = df_fonte_grafico.groupby(country_col)[periodo_v].sum(min_count=1)
-                    for pais in sorted(paises_global, key=lambda c: -agr.loc[c].sum() if c in agr.index else 0):
-                        if pais not in agr.index:
-                            continue
-                        figv.add_trace(go.Bar(
-                            x=x_rot, y=agr.loc[pais].tolist(), name=str(pais),
-                            marker_color=cor_pais(pais),
-                            hovertemplate="%{fullData.name}<br>%{x}<br>%{y:,.0f}<extra></extra>",
-                        ))
-                    resto = agr.drop(index=[c for c in paises_global if c in agr.index]).sum(min_count=1)
-                    if len(resto) and resto.fillna(0).sum() > 0:
-                        figv.add_trace(go.Bar(
-                            x=x_rot, y=resto.tolist(), name="Outros",
-                            marker_color=COR_OUTROS,
-                            hovertemplate="Outros<br>%{x}<br>%{y:,.0f}<extra></extra>",
-                        ))
+                tot = df_fonte_grafico[periodo_v].sum(min_count=1)
+                figv = go.Figure(go.Bar(
+                    x=[rotulo_periodo(p) for p in periodo_v], y=tot.tolist(), name="Realizado",
+                    marker_color=COR_REALIZADO,
+                    hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                ))
                 figv.update_layout(
-                    barmode="stack",
                     xaxis_title="Período", yaxis_title=titulo_eixo_metrica,
                     plot_bgcolor="#DBF7FF", paper_bgcolor="white", height=520,
-                    showlegend=(visao_evolucao == "Por país"),
-                    legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
-                    margin=dict(t=30, b=110, l=60, r=30),
+                    showlegend=False, margin=dict(t=30, b=60, l=60, r=30),
                 )
                 figv.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
                 figv.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                 st.plotly_chart(aplicar_rotulos_dados(figv), use_container_width=True,
-                                key=f"evolucao_{visao_evolucao}_{combo_id}")
+                                key=f"evolucao_total_{combo_id}")
+
+            elif visao_evolucao == "Por país":
+                periodo_v = recortar_periodo(periodo_cols)
+                nota_ano_em_andamento(periodo_v)
+                if not paises_global:
+                    st.info("Selecione ao menos um país no painel de filtros.")
+                agr = df_fonte_grafico.groupby(country_col)[periodo_v].sum(min_count=1)
+                paises_plot = [c for c in paises_global if c in agr.index]
+                paises_plot.sort(key=lambda c: -agr.loc[c].fillna(0).sum())
+                x_rot = [rotulo_periodo(p) for p in periodo_v]
+                for i in range(0, len(paises_plot), 2):
+                    colsp = st.columns(2)
+                    for j, pais in enumerate(paises_plot[i:i + 2]):
+                        with colsp[j]:
+                            st.markdown(f"**País: {pais}**")
+                            figp = go.Figure(go.Bar(
+                                x=x_rot, y=agr.loc[pais].tolist(), name=str(pais),
+                                marker_color=cor_pais(pais),
+                                hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                            ))
+                            figp.update_layout(
+                                height=290, plot_bgcolor="#DBF7FF", paper_bgcolor="white",
+                                margin=dict(t=15, b=40, l=40, r=20), showlegend=False,
+                            )
+                            figp.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                            figp.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                            st.plotly_chart(aplicar_rotulos_dados(figp), use_container_width=True,
+                                            key="evolucao_pais_" + re.sub(r"\W+", "_", str(pais).lower()) + f"_{combo_id}")
 
             # ------------------------------------------------------------
             # Gráfico 4 -- porcentagem por país, um mini-gráfico por via de entrada
@@ -2281,22 +2291,22 @@ if "df_eua_multi" in st.session_state:
                                         y=labels4_h,
                                         orientation="h",
                                         marker_color=cores4_h,
-                                        text=[f"{p:.1f}% · {v:,.0f}" for p, v in zip(percentuais4_h, valores4[::-1])],
+                                        text=[f"{v:,.0f}".replace(",", ".") for v in valores4[::-1]],
                                         textposition="outside",
                                         cliponaxis=False,
                                         customdata=valores4[::-1],
-                                        hovertemplate="%{y}<br>%{x:.2f}% do total da via<br>%{customdata:,.0f}<extra></extra>",
+                                        hovertemplate="%{y}<br>%{x:.1f}% do total da via<br>%{customdata:,.0f}<extra></extra>",
                                     )
                                 )
                                 fig4.update_layout(
                                     xaxis_title=tx("% do total nessa via de entrada"),
-                                    xaxis=dict(range=[0, max(percentuais4_h) * 1.45]),
+                                    xaxis=dict(range=[0, max(percentuais4_h) * 1.25]),
                                     yaxis=dict(categoryorder="array", categoryarray=labels4_h),
                                     plot_bgcolor="#DBF7FF",
                                     paper_bgcolor="white",
                                     height=350,
                                     showlegend=False,
-                                    margin=dict(t=30, b=40, l=100, r=110),
+                                    margin=dict(t=30, b=40, l=100, r=80),
                                 )
                                 fig4.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
                                 fig4.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
@@ -2546,7 +2556,7 @@ if "df_eua_multi" in st.session_state:
                                 reverse=True,
                             )
                             texto = f"<b>{row['_rotulo']}</b><br>" + "<br>".join(
-                                f"{nome}: {valor:,.0f}" for nome, valor in pares
+                                f"{nome}: {valor:,.0f}".replace(",", ".") for nome, valor in pares
                             )
                             hover_textos.append(texto)
                             y_topo.append(max(row[c] for c in colunas_com_dado))
@@ -2638,8 +2648,8 @@ if "df_eua_multi" in st.session_state:
                         go.Bar(
                             x=labels5,
                             y=valores5,
-                            marker_color=COR_PROJETADO,
-                            text=[f"{v:,.0f}" if v else "" for v in valores5],
+                            marker_color=COR_REALIZADO,
+                            text=[f"{v:,.0f}".replace(",", ".") if v else "" for v in valores5],
                             textposition="outside",
                             textangle=-90,
                             cliponaxis=False,
@@ -2650,15 +2660,15 @@ if "df_eua_multi" in st.session_state:
                     fig5.add_trace(
                         go.Scatter(
                             x=labels5, y=acumulado5, yaxis="y2", mode="lines+markers",
-                            line=dict(color=COR_DESTAQUE, width=2), marker=dict(size=7),
+                            line=dict(color=COR_PROJETADO, width=2), marker=dict(size=7, color=COR_PROJETADO),
                             meta="sem_rotulo",  # não recebe rótulos de dados
                             hovertemplate="%{x}<br>% acumulado: %{y:.1f}%<extra></extra>",
                         )
                     )
                     fig5.add_hline(
-                        y=LIMITE_PARETO * 100, yref="y2", line=dict(color="#E8590C", width=1, dash="dash"),
+                        y=LIMITE_PARETO * 100, yref="y2", line=dict(color=COR_PROJETADO, width=1, dash="dash"),
                         annotation_text="80%", annotation_position="top right",
-                        annotation_font=dict(size=12, color="#E8590C"),
+                        annotation_font=dict(size=12, color=COR_PROJETADO),
                     )
                     fig5.update_layout(
                         xaxis_title="País",
