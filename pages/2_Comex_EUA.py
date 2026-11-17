@@ -278,6 +278,23 @@ VIAS_ESPECIAIS_INFO = {
 }
 
 
+# --------------------------------------------------------------------
+# Padrão visual dos gráficos (uma só paleta em todo o dashboard)
+#   - COR_REALIZADO / COR_PROJETADO: série principal e projeção
+#   - PALETA_CATEGORICA: no máx. 8 cores para separar vias/países/modais
+#   - COR_OUTROS: cinza, só para "Outros"/resto
+#   - COR_DESTAQUE: laranja, só para destacar algo (ex.: % acumulado)
+# --------------------------------------------------------------------
+COR_REALIZADO = "#042373"
+COR_PROJETADO = "green"
+COR_OUTROS = "#9AA5B1"
+COR_DESTAQUE = "#E8590C"
+PALETA_CATEGORICA = [
+    "#042373", "#E8590C", "#2A9D8F", "#8E44AD",
+    "#F4A300", "#5B9BD5", "#C0392B", "#6B8E23",
+]
+
+
 def info_via_especial(nome):
     """Texto explicativo se `nome` é uma via especial do Census; senão None."""
     n = str(nome).lower()
@@ -869,6 +886,8 @@ if buscar:
     st.session_state["df_eua_years"] = years
     st.session_state["df_eua_ytd_mes"] = ytd_ate_mes
     st.session_state["df_eua_hts"] = hts_codes
+    st.session_state["df_eua_paises_filtro"] = list(countries)
+    st.session_state["df_eua_vias_filtro"] = list(districts)
     st.session_state["df_eua_fluxo"] = fluxo
     st.session_state["df_eua_tipo_export"] = tipo_export_label
     # Identifica a busca: entra na chave dos sliders/multiselects dos gráficos, para
@@ -1627,6 +1646,11 @@ if "df_eua_multi" in st.session_state:
     # ----------------------------------------------------------------
     st.divider()
 
+    # Painel ÚNICO de filtros dos gráficos (HTS, vias e países). É criado aqui
+    # para aparecer antes do primeiro gráfico e preenchido mais abaixo, quando
+    # os dados já foram analisados.
+    painel_filtros = st.container()
+
     df_fonte = dfs_por_medida.get(chave_medida)
 
     def nota_ano_em_andamento(periodos, mes=None, fonte=""):
@@ -1696,14 +1720,15 @@ if "df_eua_multi" in st.session_state:
             else:
                 opcoes_ordenadas = list(opcoes_hts.keys())
 
-            escolha_label = st.selectbox(
-                "HTS exibido nos gráficos",
-                options=opcoes_ordenadas,
-                help=(
-                    "Em Quantidade não é possível somar HTS diferentes -- "
-                    "as unidades de medida podem não ser as mesmas."
-                ),
-            )
+            with painel_filtros:
+                escolha_label = st.selectbox(
+                    "HTS exibido nos gráficos",
+                    options=opcoes_ordenadas,
+                    help=(
+                        "Em Quantidade não é possível somar HTS diferentes -- "
+                        "as unidades de medida podem não ser as mesmas."
+                    ),
+                )
             if escolha_label == TOTAL_LABEL:
                 hts_escolhido = None
                 df_fonte_grafico = df_fonte
@@ -1814,6 +1839,113 @@ if "df_eua_multi" in st.session_state:
                     via_col = c
                     break
 
+            # País: detectado aqui porque o painel de filtros precisa dele.
+            country_col = None
+            for c in label_cols:
+                valores = df_fonte_grafico[c].dropna().astype(str)
+                if len(valores) == 0:
+                    continue
+                if valores.isin(COUNTRY_CODES.keys()).mean() >= 0.5:
+                    country_col = c
+                    break
+
+            # ------------------------------------------------------------
+            # Painel de filtros GLOBAL dos gráficos: vale para TODOS os
+            # gráficos (sem repetir seletor em cada um).
+            #   - Vias exibidas: gráficos por via (evolução, combinado e os
+            #     por país/via).
+            #   - Países exibidos: gráfico de % por país (o resto vira
+            #     "Outros").
+            # Os gráficos de total (Pareto de países e modal) mostram o
+            # universo consultado; o modal segue os filtros da barra lateral.
+            # ------------------------------------------------------------
+            vias_global, paises_global = [], []
+            top5_vias_default, top5_paises_default = [], []
+            todas_vias_alfa, todos_paises_alfa = [], []
+            ranking_paises = []
+
+            if via_col:
+                _dv = (
+                    df_fonte_grafico.groupby(via_col, as_index=False)[periodo_cols]
+                    .sum(min_count=1)
+                )
+                _dv["_total"] = _dv[periodo_cols].sum(axis=1, skipna=True)
+                _dv = _dv.sort_values("_total", ascending=False)
+                _reais = _dv[_dv["_total"] > 0][via_col].tolist()
+                # Vias especiais do Census (baixo valor, correio...) não são
+                # portos: ficam fora do Top 5 automático.
+                _normais = [v for v in _reais if info_via_especial(v) is None]
+                top5_vias_default = sorted((_normais or _reais)[:5])
+                todas_vias_alfa = sorted(_dv[via_col].tolist())
+
+            if country_col:
+                _dp = (
+                    df_fonte_grafico.groupby(country_col, as_index=False)[periodo_visivel]
+                    .sum(min_count=1)
+                )
+                _dp["_total"] = _dp[periodo_visivel].sum(axis=1, skipna=True)
+                _dp = _dp.sort_values("_total", ascending=False)
+                ranking_paises = _dp[country_col].tolist()
+                top5_paises_default = sorted(_dp[_dp["_total"] > 0][country_col].tolist()[:5])
+                todos_paises_alfa = sorted(ranking_paises)
+
+            MAX_VIAS_GLOBAL = 8
+            MAX_PAISES_GLOBAL = 12
+            ms_key_vias = f"vias_global_multiselect_{combo_id}"
+            ms_key_paises = f"paises_global_multiselect_{combo_id}"
+            flag_reset_global = f"filtros_global_reset_flag_{combo_id}"
+            if st.session_state.get(flag_reset_global):
+                st.session_state[ms_key_vias] = top5_vias_default
+                st.session_state[ms_key_paises] = top5_paises_default
+                st.session_state[flag_reset_global] = False
+
+            if via_col or country_col:
+                with painel_filtros:
+                    col_titulo_f, col_btn_f = st.columns([5, 1])
+                    with col_titulo_f:
+                        st.markdown("**Filtros dos gráficos**")
+                    with col_btn_f:
+                        if st.button("Restaurar Top 5", key=f"filtros_global_reset_btn_{combo_id}", use_container_width=True):
+                            st.session_state[flag_reset_global] = True
+                            st.rerun()
+                    col_fv, col_fp = st.columns(2)
+                    with col_fv:
+                        if via_col:
+                            vias_global = st.multiselect(
+                                tx("Vias de Entrada exibidas"),
+                                options=todas_vias_alfa,
+                                default=top5_vias_default,
+                                key=ms_key_vias,
+                                max_selections=MAX_VIAS_GLOBAL,
+                                help=tx(f"Máximo de {MAX_VIAS_GLOBAL} vias por vez, para manter as cores e a leitura claras."),
+                            )
+                    with col_fp:
+                        if country_col:
+                            paises_global = st.multiselect(
+                                "Países exibidos",
+                                options=todos_paises_alfa,
+                                default=top5_paises_default,
+                                key=ms_key_paises,
+                                max_selections=MAX_PAISES_GLOBAL,
+                                help=(
+                                    "No gráfico de % por país, os países não selecionados "
+                                    f"entram somados em \"Outros\". Máximo de {MAX_PAISES_GLOBAL} por vez."
+                                ),
+                            )
+
+            # Cores consistentes: a mesma via/país tem a mesma cor em todos os gráficos.
+            cor_via = {
+                v: PALETA_CATEGORICA[i % len(PALETA_CATEGORICA)]
+                for i, v in enumerate(vias_global)
+            }
+            _cor_pais_map = {
+                c: PALETA_CATEGORICA[i]
+                for i, c in enumerate(ranking_paises[: len(PALETA_CATEGORICA)])
+            }
+
+            def cor_pais(nome):
+                return COR_OUTROS if nome == "Outros" else _cor_pais_map.get(nome, COR_OUTROS)
+
             if via_col:
                 df_via = (
                     df_fonte_grafico.groupby(via_col, as_index=False)[periodo_cols]
@@ -1832,27 +1964,7 @@ if "df_eua_multi" in st.session_state:
                 top5_default = sorted((_vias_reais or vias_com_total_real)[:5])
                 todas_vias_alfa = sorted(todas_vias)
 
-                ms_key = f"vias_grafico_multiselect_{combo_id}"
-                reset_flag_key = f"vias_grafico_reset_flag_{combo_id}"
-                if st.session_state.get(reset_flag_key):
-                    st.session_state[ms_key] = top5_default
-                    st.session_state[reset_flag_key] = False
-
-                col_label, col_btn = st.columns([5, 1])
-                with col_label:
-                    st.markdown(tx("**Vias de Entrada exibidas**"))
-                with col_btn:
-                    if st.button("Restaurar Top 5", key=f"vias_grafico_reset_btn_{combo_id}", use_container_width=True):
-                        st.session_state[reset_flag_key] = True
-                        st.rerun()
-
-                vias_selecionadas = st.multiselect(
-                    tx("Vias de Entrada exibidas"),
-                    options=todas_vias_alfa,
-                    default=top5_default,
-                    key=ms_key,
-                    label_visibility="collapsed",
-                )
+                vias_selecionadas = vias_global
 
                 if not vias_selecionadas:
                     st.info(tx("Selecione ao menos uma via de entrada para exibir os gráficos."))
@@ -1999,7 +2111,7 @@ if "df_eua_multi" in st.session_state:
                                 fig.add_trace(
                                     go.Bar(
                                         x=[rotulo_periodo(p) for p in periodo_visivel], y=valores,
-                                        name="Realizado", marker_color="blue",
+                                        name="Realizado", marker_color=COR_REALIZADO,
                                         hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                                     )
                                 )
@@ -2011,7 +2123,7 @@ if "df_eua_multi" in st.session_state:
                                         fig.add_trace(
                                             go.Bar(
                                                 x=periodos_proj, y=valores_proj,
-                                                name="Projetado", marker_color="green",
+                                                name="Projetado", marker_color=COR_PROJETADO,
                                                 hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                                             )
                                         )
@@ -2045,39 +2157,11 @@ if "df_eua_multi" in st.session_state:
 
                 periodo_visivel2 = recortar_periodo(periodo_cols)
 
-                ms_key2 = f"vias_grafico2_multiselect_{combo_id}"
-                reset_flag_key2 = f"vias_grafico2_reset_flag_{combo_id}"
-                if st.session_state.get(reset_flag_key2):
-                    st.session_state[ms_key2] = top5_default
-                    st.session_state[reset_flag_key2] = False
-
-                MAX_VIAS_GRAFICO2 = 12
-
-                col_label2, col_btn2 = st.columns([5, 1])
-                with col_label2:
-                    st.markdown(tx("**Vias de Entrada exibidas**"))
-                with col_btn2:
-                    if st.button("Restaurar Top 5", key=f"vias_grafico2_reset_btn_{combo_id}", use_container_width=True):
-                        st.session_state[reset_flag_key2] = True
-                        st.rerun()
-
-                vias_selecionadas2 = st.multiselect(
-                    tx("Vias de Entrada exibidas neste gráfico"),
-                    options=todas_vias_alfa,
-                    default=top5_default,
-                    key=ms_key2,
-                    label_visibility="collapsed",
-                    max_selections=MAX_VIAS_GRAFICO2,
-                )
-                st.caption(
-                    tx(f"Máximo de {MAX_VIAS_GRAFICO2} vias de entrada por vez neste gráfico, "
-                    "para manter as cores e a leitura claras.")
-                )
+                vias_selecionadas2 = vias_global
 
                 if not vias_selecionadas2:
                     st.info(tx("Selecione ao menos uma via de entrada para exibir o gráfico."))
                 else:
-                    paleta = pcolors.qualitative.Alphabet
                     fig2 = go.Figure()
                     for i, via in enumerate(vias_selecionadas2):
                         row = df_via[df_via[via_col] == via].iloc[0]
@@ -2087,7 +2171,7 @@ if "df_eua_multi" in st.session_state:
                                 x=[rotulo_periodo(p) for p in periodo_visivel2],
                                 y=valores,
                                 name=str(via),
-                                marker_color=paleta[i % len(paleta)],
+                                marker_color=cor_via.get(via, COR_OUTROS),
                                 hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                             )
                         )
@@ -2163,32 +2247,7 @@ if "df_eua_multi" in st.session_state:
                     top5_default3 = sorted(todos_paises[:5])
                     todos_paises_alfa = sorted(todos_paises)
 
-                    ms_key3 = f"paises_grafico3_multiselect_{combo_id}"
-                    reset_flag_key3 = f"paises_grafico3_reset_flag_{combo_id}"
-                    if st.session_state.get(reset_flag_key3):
-                        st.session_state[ms_key3] = top5_default3
-                        st.session_state[reset_flag_key3] = False
-
-                    col_label3, col_btn3 = st.columns([5, 1])
-                    with col_label3:
-                        st.markdown("**Países exibidos**")
-                    with col_btn3:
-                        if st.button("Restaurar Top 5", key=f"paises_grafico3_reset_btn_{combo_id}", use_container_width=True):
-                            st.session_state[reset_flag_key3] = True
-                            st.rerun()
-
-                    paises_selecionados = st.multiselect(
-                        "Países exibidos neste gráfico",
-                        options=todos_paises_alfa,
-                        default=top5_default3,
-                        key=ms_key3,
-                        label_visibility="collapsed",
-                        max_selections=12,
-                    )
-                    st.caption(
-                        "O restante dos países não selecionados aqui entra "
-                        "somado na barra \"Outros\". Máximo de 12 países por vez."
-                    )
+                    paises_selecionados = paises_global
 
                     if not paises_selecionados:
                         st.info("Selecione ao menos um país para exibir o gráfico.")
@@ -2206,10 +2265,7 @@ if "df_eua_multi" in st.session_state:
 
                         percentuais = [v / total_geral * 100 for v in valores_abs]
 
-                        paleta = pcolors.qualitative.Alphabet
-                        cores = [paleta[i % len(paleta)] for i in range(len(labels))]
-                        if "Outros" in labels:
-                            cores[labels.index("Outros")] = "#E4572E"  # destaca "Outros"
+                        cores = [cor_pais(l) for l in labels]
 
                         # Barras horizontais, maior no topo -- por isso a
                         # ordem é invertida antes de plotar (Plotly desenha
@@ -2277,34 +2333,11 @@ if "df_eua_multi" in st.session_state:
 
                 nota_ano_em_andamento(periodo_visivel4)
 
-                ms_key4 = f"vias_grafico4_multiselect_{combo_id}"
-                reset_flag_key4 = f"vias_grafico4_reset_flag_{combo_id}"
-                if st.session_state.get(reset_flag_key4):
-                    st.session_state[ms_key4] = top5_default
-                    st.session_state[reset_flag_key4] = False
-
-                col_label4, col_btn4 = st.columns([5, 1])
-                with col_label4:
-                    st.markdown(tx("**Vias de Entrada exibidas (cada uma vira um mini-gráfico)**"))
-                with col_btn4:
-                    if st.button("Restaurar Top 5", key=f"vias_grafico4_reset_btn_{combo_id}", use_container_width=True):
-                        st.session_state[reset_flag_key4] = True
-                        st.rerun()
-
-                vias_selecionadas4 = st.multiselect(
-                    tx("Vias de Entrada exibidas neste gráfico"),
-                    options=todas_vias_alfa,
-                    default=top5_default,
-                    key=ms_key4,
-                    label_visibility="collapsed",
-                    max_selections=8,
-                )
-                st.caption(tx("Máximo de 8 vias de entrada por vez (cada uma gera um mini-gráfico)."))
+                vias_selecionadas4 = vias_global
 
                 if not vias_selecionadas4:
                     st.info(tx("Selecione ao menos uma via de entrada para exibir os gráficos."))
                 else:
-                    paleta4 = pcolors.qualitative.Alphabet
                     cols_por_linha4 = 2
                     for i in range(0, len(vias_selecionadas4), cols_por_linha4):
                         cols4 = st.columns(cols_por_linha4)
@@ -2335,9 +2368,7 @@ if "df_eua_multi" in st.session_state:
                                     valores4.append(resto_via)
 
                                 percentuais4 = [v / total_via * 100 for v in valores4]
-                                cores4 = [paleta4[k % len(paleta4)] for k in range(len(labels4))]
-                                if "Outros" in labels4:
-                                    cores4[labels4.index("Outros")] = "#E4572E"
+                                cores4 = [cor_pais(l) for l in labels4]
 
                                 labels4_h = labels4[::-1]
                                 percentuais4_h = percentuais4[::-1]
@@ -2429,46 +2460,15 @@ if "df_eua_multi" in st.session_state:
                         unsafe_allow_html=True,
                     )
 
-                # Filtros exclusivos deste gráfico -- país e via de entrada,
-                # independentes dos filtros globais da barra lateral. Vazio
-                # (padrão) = sem filtro, mesmo comportamento dos filtros da
-                # barra lateral -- não vem pré-preenchido com tudo marcado.
-                # Opções restritas ao que já apareceu nos dados do DataWeb
-                # para esse(s) HTS (evita oferecer país/via sem nenhum
-                # comércio registrado, que sempre daria "sem dados" -- ou
-                # pior, deixaria a consulta lenta à toa na Census API, que
-                # é uma fonte diferente da base usada nos outros gráficos).
-                if country_col:
-                    paises_modal_opcoes = sorted(
-                        v for v in df_fonte_grafico[country_col].dropna().unique()
-                        if v in COUNTRY_CODES
-                    )
-                else:
-                    paises_modal_opcoes = sorted(COUNTRY_CODES.keys())
-
-                if via_col:
-                    vias_modal_opcoes = sorted(
-                        v for v in df_fonte_grafico[via_col].dropna().unique()
-                        if v in DISTRICT_CODES
-                    )
-                else:
-                    vias_modal_opcoes = sorted(DISTRICT_CODES.keys())
-
-                col_fp, col_fv = st.columns(2)
-                with col_fp:
-                    paises_modal_sel = st.multiselect(
-                        "Países considerados neste gráfico (opcional — vazio = todos)",
-                        options=paises_modal_opcoes,
-                        default=[],
-                        key=f"paises_modal_{combo_id}",
-                    )
-                with col_fv:
-                    vias_modal_sel = st.multiselect(
-                        tx("Vias de entrada consideradas neste gráfico (opcional — vazio = todas)"),
-                        options=vias_modal_opcoes,
-                        default=[],
-                        key=f"vias_modal_{combo_id}",
-                    )
+                # Este gráfico segue os filtros de país e via da BARRA LATERAL
+                # (vazio = todos). Não tem seletores próprios.
+                paises_modal_sel = [
+                    c for c in st.session_state.get("df_eua_paises_filtro", []) if c in COUNTRY_CODES
+                ]
+                vias_modal_sel = [
+                    d for d in st.session_state.get("df_eua_vias_filtro", []) if d in DISTRICT_CODES
+                ]
+                st.caption(tx("Segue os filtros de país e via de entrada da barra lateral (vazio = todos)."))
 
                 country_codes_census = [COUNTRY_CODES[c] for c in paises_modal_sel] or None
                 district_codes_census = [DISTRICT_CODES[d] for d in vias_modal_sel] or None
@@ -2558,9 +2558,9 @@ if "df_eua_multi" in st.session_state:
                     )
 
                     cores_modal = {
-                        "Valor Aereo": "#1CBE4F",
-                        "Valor Maritimo": "#042373",
-                        "Valor Terrestre": "#E4572E",
+                        "Valor Aereo": PALETA_CATEGORICA[2],
+                        "Valor Maritimo": PALETA_CATEGORICA[0],
+                        "Valor Terrestre": PALETA_CATEGORICA[1],
                     }
                     nomes_modal = {
                         "Valor Aereo": "Aéreo",
@@ -2748,7 +2748,7 @@ if "df_eua_multi" in st.session_state:
                     fig5.add_trace(
                         go.Scatter(
                             x=labels5, y=acumulado5, yaxis="y2", mode="lines+markers",
-                            line=dict(color="#E8590C", width=2), marker=dict(size=7),
+                            line=dict(color=COR_DESTAQUE, width=2), marker=dict(size=7),
                             meta="sem_rotulo",  # não recebe rótulos de dados
                             hovertemplate="%{x}<br>% acumulado: %{y:.1f}%<extra></extra>",
                         )
@@ -2815,29 +2815,7 @@ if "df_eua_multi" in st.session_state:
 
                 nota_ano_em_andamento(periodo_visivel6)
 
-                ms_key6 = f"vias_grafico6_multiselect_{combo_id}"
-                reset_flag_key6 = f"vias_grafico6_reset_flag_{combo_id}"
-                if st.session_state.get(reset_flag_key6):
-                    st.session_state[ms_key6] = top5_default
-                    st.session_state[reset_flag_key6] = False
-
-                col_label6, col_btn6 = st.columns([5, 1])
-                with col_label6:
-                    st.markdown(tx("**Vias de Entrada exibidas (cada uma vira um mini-gráfico)**"))
-                with col_btn6:
-                    if st.button("Restaurar Top 5", key=f"vias_grafico6_reset_btn_{combo_id}", use_container_width=True):
-                        st.session_state[reset_flag_key6] = True
-                        st.rerun()
-
-                vias_selecionadas6 = st.multiselect(
-                    tx("Vias de Entrada exibidas neste gráfico"),
-                    options=todas_vias_alfa,
-                    default=top5_default,
-                    key=ms_key6,
-                    label_visibility="collapsed",
-                    max_selections=8,
-                )
-                st.caption(tx("Máximo de 8 vias de entrada por vez (cada uma gera um mini-gráfico)."))
+                vias_selecionadas6 = vias_global
 
                 if not vias_selecionadas6:
                     st.info(tx("Selecione ao menos uma via de entrada para exibir os gráficos."))
