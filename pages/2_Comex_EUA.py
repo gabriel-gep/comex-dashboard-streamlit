@@ -197,6 +197,7 @@ _TERMOS_EXPORT = [
     ("Vias de entrada", "Vias de saída"), ("Via de entrada", "Via de saída"),
     ("vias de entrada", "vias de saída"), ("via de entrada", "via de saída"),
     ("Importações", "Exportações"), ("importações", "exportações"),
+    ("Importação", "Exportação"), ("importação", "exportação"),
     ("Importado", "Exportado"), ("importado", "exportado"),
     ("Origem", "Destino"), ("origem", "destino"),
 ]
@@ -1893,7 +1894,7 @@ if "df_eua_multi" in st.session_state:
                 _dp["_total"] = _dp[periodo_visivel].sum(axis=1, skipna=True)
                 _dp = _dp.sort_values("_total", ascending=False)
                 ranking_paises = _dp[country_col].tolist()
-                top5_paises_default = sorted(_dp[_dp["_total"] > 0][country_col].tolist()[:5])
+                top5_paises_default = sorted(_dp[_dp["_total"] > 0][country_col].tolist()[:6])
                 todos_paises_alfa = sorted(ranking_paises)
 
             MAX_VIAS_GLOBAL = 6
@@ -1910,9 +1911,9 @@ if "df_eua_multi" in st.session_state:
                 with painel_filtros:
                     col_titulo_f, col_btn_f = st.columns([5, 1])
                     with col_titulo_f:
-                        st.markdown("**Filtros dos gráficos**")
+                        st.markdown(tx("**Filtros dos gráficos** — o padrão são as vias e os países de maior volume de importação no período selecionado"))
                     with col_btn_f:
-                        if st.button("Restaurar Top 5", key=f"filtros_global_reset_btn_{combo_id}", use_container_width=True):
+                        if st.button("Restaurar Top 6", key=f"filtros_global_reset_btn_{combo_id}", use_container_width=True):
                             st.session_state[flag_reset_global] = True
                             st.rerun()
                     col_fv, col_fp = st.columns(2)
@@ -1923,20 +1924,21 @@ if "df_eua_multi" in st.session_state:
                                 options=todas_vias_alfa,
                                 default=top5_vias_default,
                                 key=ms_key_vias,
-                                max_selections=MAX_VIAS_GLOBAL,
-                                help=tx(f"Máximo de {MAX_VIAS_GLOBAL} vias por vez, para manter as cores e a leitura claras."),
+                                                                help=tx("Padrão: as 6 vias de entrada de maior volume de importação no período selecionado "
+                                        "(vias especiais do Census ficam de fora do padrão). Você pode selecionar quantas quiser."),
                             )
                     with col_fp:
                         if country_col:
                             paises_global = st.multiselect(
-                                "Países exibidos",
+                                tx("Países de origem exibidos"),
                                 options=todos_paises_alfa,
                                 default=top5_paises_default,
                                 key=ms_key_paises,
                                 max_selections=MAX_PAISES_GLOBAL,
-                                help=(
-                                    "Usado na visão \"Por país\" da evolução no tempo (os demais "
-                                    f"entram em \"Outros\"). Máximo de {MAX_PAISES_GLOBAL} por vez."
+                                help=tx(
+                                    "Padrão: os 6 países de origem de maior volume de importação no período "
+                                    "selecionado. Usado na visão \"Por país\" da evolução no tempo. "
+                                    f"Máximo de {MAX_PAISES_GLOBAL} por vez."
                                 ),
                             )
 
@@ -1961,11 +1963,12 @@ if "df_eua_multi" in st.session_state:
             visao_evolucao = st.radio(
                 "Visão da evolução no tempo",
                 options=opcoes_visao,
+                format_func=lambda o: tx("Por país de origem") if o == "Por país" else tx(o),
                 index=opcoes_visao.index("Por via") if "Por via" in opcoes_visao else 0,
                 horizontal=True,
                 key=f"visao_evolucao_{combo_id}",
                 help=tx("Total: soma de tudo. Por via: um mini-gráfico por via (com projeção no modo Mensal). "
-                        "Por país: um mini-gráfico por país escolhido no painel de filtros."),
+                        "Por país de origem: um mini-gráfico por país escolhido no painel de filtros."),
             )
 
             if via_col:
@@ -2003,6 +2006,8 @@ if "df_eua_multi" in st.session_state:
                         and periodo_visivel[-1] == periodo_cols[-1]
                         and len(periodo_cols) >= 6  # mínimo de histórico para o modelo
                     )
+
+                    nota_ano_em_andamento(periodo_visivel)
 
                     forecast_por_via = {}
                     if mostrar_projecao:
@@ -2199,7 +2204,7 @@ if "df_eua_multi" in st.session_state:
                 periodo_v = recortar_periodo(periodo_cols)
                 nota_ano_em_andamento(periodo_v)
                 if not paises_global:
-                    st.info("Selecione ao menos um país no painel de filtros.")
+                    st.info(tx("Selecione ao menos um país de origem no painel de filtros."))
                 agr = df_fonte_grafico.groupby(country_col)[periodo_v].sum(min_count=1)
                 paises_plot = [c for c in paises_global if c in agr.index]
                 paises_plot.sort(key=lambda c: -agr.loc[c].fillna(0).sum())
@@ -2208,7 +2213,7 @@ if "df_eua_multi" in st.session_state:
                     colsp = st.columns(2)
                     for j, pais in enumerate(paises_plot[i:i + 2]):
                         with colsp[j]:
-                            st.markdown(f"**País: {pais}**")
+                            st.markdown(f"**{tx('País de origem')}: {pais}**")
                             figp = go.Figure(go.Bar(
                                 x=x_rot, y=agr.loc[pais].tolist(), name=str(pais),
                                 marker_color=cor_pais(pais),
@@ -2232,7 +2237,7 @@ if "df_eua_multi" in st.session_state:
             st.markdown(
                 tx(f"""
                 <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                    Composição por País em cada Via de Entrada ({metrica_grafico}, Realizado): % do total da via e valor
+                    Composição por País de Origem em cada Via de Entrada ({metrica_grafico}, Realizado): % do total da via e valor
                 </h2>
                 """),
                 unsafe_allow_html=True,
@@ -2600,7 +2605,7 @@ if "df_eua_multi" in st.session_state:
             st.markdown(
                 f"""
                 <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                    Volume total transacionado em {metrica_grafico} (Realizado) por País
+                    Volume total transacionado em {metrica_grafico} (Realizado) por País de Origem
                 </h2>
                 <p style='text-align:center; font-size:0.85rem; color:#666; margin:0;'>
                     Pareto 80-20: países que somam 80% do total + "Outros" (linha = % acumulado)
@@ -2671,7 +2676,7 @@ if "df_eua_multi" in st.session_state:
                         annotation_font=dict(size=12, color=COR_PROJETADO),
                     )
                     fig5.update_layout(
-                        xaxis_title="País",
+                        xaxis_title=tx("País de origem"),
                         yaxis_title=titulo_eixo_metrica,
                         xaxis=dict(
                             type="category", categoryorder="array", categoryarray=labels5,
