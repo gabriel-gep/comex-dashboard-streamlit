@@ -1543,6 +1543,14 @@ if "df_eua_multi" in st.session_state:
             else:
                 passo = max(1, math.ceil(n / MAX_ROTULOS))
             ymax = 0.0
+            # Rótulo na horizontal quando cabe no espaço de cada barra (anual,
+            # poucos meses, mini-gráficos com poucas barras); senão, vertical.
+            _larg_graf = 450 if (fig.layout.height or 450) < 400 else 1000
+            _maior = max(
+                (len(_fmt(y)) for tr in barras_v for y in tr.y), default=0
+            )
+            _slot = _larg_graf / max(1, n * m)
+            _angulo = 0 if _slot >= (_maior * 8.5 + 10) else -90
             for j, tr in enumerate(barras_v):
                 textos = []
                 for x, y in zip(tr.x, tr.y):
@@ -1553,11 +1561,11 @@ if "df_eua_multi" in st.session_state:
                         ymax = max(ymax, float(y))
                 tr.update(
                     text=textos, texttemplate=None, textposition="outside",
-                    textangle=-90, textfont=FONTE_ROTULO, cliponaxis=False,
+                    textangle=_angulo, textfont=FONTE_ROTULO, cliponaxis=False,
                     constraintext="none",  # o Plotly encolhia o texto p/ caber na barra
                 )
             if ymax > 0:  # folga no topo para os rótulos verticais
-                fig.update_yaxes(range=[0, ymax * 1.35])
+                fig.update_yaxes(range=[0, ymax * (1.12 if _angulo == 0 else 1.35)])
                 # garante o tamanho mínimo do texto (sem isso o Plotly reduz a fonte)
                 fig.update_layout(uniformtext=dict(minsize=FONTE_ROTULO["size"], mode="show"))
 
@@ -2738,7 +2746,7 @@ if "df_eua_multi" in st.session_state:
                             marker_color=COR_REALIZADO,
                             text=[f"{v:,.0f}".replace(",", ".") if v else "" for v in valores5],
                             textposition="outside",
-                            textangle=-90,
+                            textangle=0 if (1000 / max(1, len(labels5))) >= (max(len(f"{v:,.0f}") for v in valores5) * 8.5 + 10) else -90,
                             cliponaxis=False,
                             hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                         )
