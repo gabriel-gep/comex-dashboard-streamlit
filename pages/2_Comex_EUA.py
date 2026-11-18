@@ -2095,7 +2095,7 @@ if "df_eua_multi" in st.session_state:
                             "<div style='display:flex; gap:24px; align-items:center; "
                             "margin:4px 0 12px 0; font-size:0.9rem; color:#31333F;'>"
                             "<span><span style='display:inline-block; width:12px; height:12px; "
-                            "background:blue; border-radius:2px; margin-right:6px;'></span>Realizado</span>"
+                            "background:#042373; border-radius:2px; margin-right:6px;'></span>Realizado</span>"
                             "<span><span style='display:inline-block; width:12px; height:12px; "
                             "background:green; border-radius:2px; margin-right:6px;'></span>Projetado</span>"
                             "</div>",
@@ -2181,6 +2181,62 @@ if "df_eua_multi" in st.session_state:
                 )
 
             # Visões "Total" e "Por país" da evolução no tempo
+            # Projeção (modo Mensal) para as visões "Total" e "Por país de origem":
+            # mesma regra e mesmo modelo da visão "Por via".
+            def aviso_sem_projecao(nomes):
+                if nomes:
+                    st.caption(
+                        "⚠️ Sem projeção para: **" + "**, **".join(str(n) for n in nomes) +
+                        "** -- histórico com muitos meses sem comércio (padrão "
+                        "intermitente/esporádico), onde este modelo de projeção "
+                        "não é confiável."
+                    )
+
+            _intermitentes_v = []
+
+            def calcular_projecoes(coluna_grupo, nomes=None):
+                """Devolve {nome: Series projetada}. coluna_grupo=None -> total."""
+                try:
+                    df_full = dfs_por_medida_full.get(chave_medida)
+                    if df_full is None:
+                        return {}
+                    if hts_escolhido is not None and hts_col:
+                        df_full = df_full[df_full[hts_col] == hts_escolhido]
+                    cols_full = periodo_cols_de(df_full)
+                    cols_prev = cols_full[-60:] if len(cols_full) > 60 else cols_full
+                    if len(cols_full) < 6:
+                        return {}
+                    if coluna_grupo is None:
+                        grupos = {"Total": df_full[cols_prev].sum(min_count=1)}
+                    else:
+                        agr_full = df_full.groupby(coluna_grupo)[cols_prev].sum(min_count=1)
+                        grupos = {n: agr_full.loc[n] for n in (nomes or []) if n in agr_full.index}
+                    df_wide = pd.DataFrame({"data": [periodo_label_para_data(c) for c in cols_prev]})
+                    for nome, serie in grupos.items():
+                        valores_j = [serie.get(c, 0) for c in cols_prev]
+                        if _proporcao_meses_zerados(valores_j) >= LIMIAR_INTERMITENCIA:
+                            _intermitentes_v.append(nome)
+                            continue
+                        df_wide[nome] = valores_j
+                    if len(df_wide.columns) <= 1:
+                        return {}
+                    fdf = _forecast_cached(df_wide.to_json(orient="split", date_format="iso"), h=6)
+                    return {n: fdf[n].dropna() for n in fdf.columns if n in grupos and not fdf[n].dropna().empty}
+                except Exception:
+                    return {}
+
+            def legenda_real_proj():
+                st.markdown(
+                    "<div style='display:flex; gap:24px; align-items:center; "
+                    "margin:4px 0 12px 0; font-size:0.9rem; color:#31333F;'>"
+                    f"<span><span style='display:inline-block; width:12px; height:12px; "
+                    f"background:{COR_REALIZADO}; border-radius:2px; margin-right:6px;'></span>Realizado</span>"
+                    f"<span><span style='display:inline-block; width:12px; height:12px; "
+                    f"background:{COR_PROJETADO}; border-radius:2px; margin-right:6px;'></span>Projetado</span>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
             if visao_evolucao == "Total":
                 periodo_v = recortar_periodo(periodo_cols)
                 nota_ano_em_andamento(periodo_v)
@@ -2190,6 +2246,18 @@ if "df_eua_multi" in st.session_state:
                     marker_color=COR_REALIZADO,
                     hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                 ))
+                _proj_ok = bool(monthly and periodo_v and periodo_v[-1] == periodo_cols[-1])
+                _intermitentes_v.clear()
+                _proj = calcular_projecoes(None).get("Total") if _proj_ok else None
+                aviso_sem_projecao(["Total"] if _intermitentes_v else [])
+                if _proj is not None and len(_proj) > 0:
+                    legenda_real_proj()
+                    figv.add_trace(go.Bar(
+                        x=[data_para_periodo_label(d) for d in _proj.index],
+                        y=[round(v) for v in _proj.tolist()], name="Projetado",
+                        marker_color=COR_PROJETADO,
+                        hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                    ))
                 figv.update_layout(
                     xaxis_title="Período", yaxis_title=titulo_eixo_metrica,
                     plot_bgcolor="#DBF7FF", paper_bgcolor="white", height=520,
@@ -2209,6 +2277,12 @@ if "df_eua_multi" in st.session_state:
                 paises_plot = [c for c in paises_global if c in agr.index]
                 paises_plot.sort(key=lambda c: -agr.loc[c].fillna(0).sum())
                 x_rot = [rotulo_periodo(p) for p in periodo_v]
+                _proj_ok = bool(monthly and periodo_v and periodo_v[-1] == periodo_cols[-1])
+                _intermitentes_v.clear()
+                _proj_p = calcular_projecoes(country_col, paises_plot) if _proj_ok else {}
+                if _proj_p:
+                    legenda_real_proj()
+                aviso_sem_projecao(list(_intermitentes_v))
                 for i in range(0, len(paises_plot), 2):
                     colsp = st.columns(2)
                     for j, pais in enumerate(paises_plot[i:i + 2]):
@@ -2219,6 +2293,14 @@ if "df_eua_multi" in st.session_state:
                                 marker_color=cor_pais(pais),
                                 hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                             ))
+                            _sp = _proj_p.get(pais)
+                            if _sp is not None and len(_sp) > 0:
+                                figp.add_trace(go.Bar(
+                                    x=[data_para_periodo_label(d) for d in _sp.index],
+                                    y=[round(v) for v in _sp.tolist()], name="Projetado",
+                                    marker_color=COR_PROJETADO,
+                                    hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
+                                ))
                             figp.update_layout(
                                 height=290, plot_bgcolor="#DBF7FF", paper_bgcolor="white",
                                 margin=dict(t=15, b=40, l=40, r=20), showlegend=False,
