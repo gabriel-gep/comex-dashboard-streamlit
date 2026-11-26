@@ -214,9 +214,56 @@ def ordem_pais_pt(nome):
     return "".join(ch for ch in t if not unicodedata.combining(ch)).lower()
 
 
+import re as _re_pais
+
+
+def _chave_pais(n):
+    return _re_pais.sub(r"[^a-z0-9]+", " ", str(n).lower()).strip()
+
+
+# O DataWeb devolve nomes curtos ("Germany", "South Korea") que diferem das
+# chaves completas do dicionário ("Germany (Federal Republic of Germany)").
+# Índice por nome normalizado + versão sem parênteses/sufixo após vírgula.
+_PAISES_PT_IDX = {}
+for _k, _v in _PAISES_PT.items():
+    for _alias in (_k, _k.split(" (")[0], _k.split(",")[0]):
+        _PAISES_PT_IDX.setdefault(_chave_pais(_alias), _v)
+for _alias, _v in {
+    "korea south": "Coreia do Sul", "korea north": "Coreia do Norte",
+    "burma": "Mianmar", "myanmar": "Mianmar", "czechia": "Tchéquia",
+    "turkiye": "Turquia", "ivory coast": "Costa do Marfim",
+    "cote d ivoire": "Costa do Marfim", "macau": "Macau",
+    "united states": "Estados Unidos", "denmark": "Dinamarca",
+    "vatican city": "Vaticano", "holy see": "Vaticano",
+    "congo kinshasa": "República Democrática do Congo",
+    "congo brazzaville": "Congo", "swaziland": "Essuatíni",
+    "cape verde": "Cabo Verde", "east timor": "Timor-Leste",
+    "falkland islands": "Ilhas Malvinas (Falkland)",
+}.items():
+    _PAISES_PT_IDX.setdefault(_alias, _v)
+
+
+@st.cache_data(show_spinner=False)
+def _traduzir_pais_auto(nome):
+    try:
+        from deep_translator import GoogleTranslator
+        t = GoogleTranslator(source="en", target="pt").translate(nome)
+        return t.strip() if t else nome
+    except Exception:
+        return nome
+
+
 def pais_pt(nome):
-    """Nome do país em português (só exibição; os dados e filtros seguem em inglês)."""
-    return _PAISES_PT.get(str(nome), nome)
+    """Nome do país em português (só exibição; os dados e filtros seguem em
+    inglês). Dicionário primeiro; nome desconhecido cai na tradução automática
+    e, se falhar, fica como veio."""
+    if nome is None or nome == "Outros":
+        return nome
+    n = str(nome)
+    if n in _PAISES_PT:
+        return _PAISES_PT[n]
+    v = _PAISES_PT_IDX.get(_chave_pais(n))
+    return v if v else _traduzir_pais_auto(n)
 
 
 _UNIDADES_PT = {
