@@ -266,6 +266,72 @@ def pais_pt(nome):
     return v if v else _traduzir_pais_auto(n)
 
 
+
+# --------------------------------------------------------------------
+# Blocos econômicos (VISÃO ADICIONAL: os países de cada bloco continuam
+# aparecendo individualmente em todos os filtros e gráficos). Um país pode
+# estar em mais de um bloco (ex.: Canadá e México: USMCA e APEC).
+# Composição atual (2026). Nomes em inglês, como o DataWeb devolve.
+# --------------------------------------------------------------------
+BLOCOS_ECONOMICOS = {
+    "União Europeia": [
+        "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus", "Czech Republic",
+        "Czechia", "Denmark", "Estonia", "Finland", "France", "Germany", "Greece",
+        "Hungary", "Ireland", "Italy", "Latvia", "Lithuania", "Luxembourg", "Malta",
+        "Netherlands", "Poland", "Portugal", "Romania", "Slovakia", "Slovenia",
+        "Spain", "Sweden",
+    ],
+    "Mercosul": ["Argentina", "Brazil", "Paraguay", "Uruguay", "Bolivia"],
+    "USMCA (ex-NAFTA)": ["Canada", "Mexico"],
+    "APEC": [
+        "Australia", "Brunei", "Canada", "Chile", "China", "Hong Kong", "Indonesia",
+        "Japan", "South Korea", "Malaysia", "Mexico", "New Zealand",
+        "Papua New Guinea", "Peru", "Philippines", "Russia", "Singapore", "Taiwan",
+        "Thailand", "Vietnam",
+    ],
+    "ASEAN": [
+        "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia", "Burma", "Myanmar",
+        "Philippines", "Singapore", "Thailand", "Vietnam", "Timor-Leste",
+    ],
+}
+_BLOCOS_CHAVES = {b: {_chave_pais(x) for x in nomes} for b, nomes in BLOCOS_ECONOMICOS.items()}
+COR_BLOCO = {
+    "União Europeia": "#264653", "Mercosul": "#6D597A", "USMCA (ex-NAFTA)": "#B56576",
+    "APEC": "#355070", "ASEAN": "#8D6B3F",
+}
+
+
+def pertence_bloco(nome, bloco):
+    n = str(nome)
+    chaves = {_chave_pais(n), _chave_pais(n.split(" (")[0]), _chave_pais(n.split(",")[0])}
+    return bool(chaves & _BLOCOS_CHAVES[bloco])
+
+
+def cor_bloco(nome):
+    return COR_BLOCO.get(nome, COR_OUTROS)
+
+
+def nome_exibicao(nome):
+    """Bloco econômico fica como está; país é traduzido."""
+    return nome if nome in BLOCOS_ECONOMICOS else pais_pt(nome)
+
+
+def agregar_blocos(df, col_pais, cols):
+    """Soma dos países de cada bloco (país em 2 blocos conta nos dois) +
+    "Demais países" (fora de todos os blocos). Devolve DataFrame com colunas
+    Bloco e _valor (só linhas com valor > 0), ordenado do maior para o menor."""
+    v = df.groupby(col_pais)[cols].sum(min_count=1)
+    v["_v"] = v.sum(axis=1, skipna=True)
+    linhas = []
+    for b in BLOCOS_ECONOMICOS:
+        mask = [pertence_bloco(n, b) for n in v.index]
+        linhas.append((b, v.loc[mask, "_v"].sum()))
+    fora = [not any(pertence_bloco(n, b) for b in BLOCOS_ECONOMICOS) for n in v.index]
+    linhas.append(("Demais países", v.loc[fora, "_v"].sum()))
+    out = pd.DataFrame(linhas, columns=["Bloco", "_valor"])
+    return out[out["_valor"] > 0].sort_values("_valor", ascending=False).reset_index(drop=True)
+
+
 _UNIDADES_PT = {
     "kilograms": "quilogramas", "kilogram": "quilograma", "number": "unidades",
     "dozen": "dúzias", "dozen pairs": "dúzias de pares", "pairs": "pares",
@@ -348,6 +414,29 @@ with st.expander("Fontes e base de valor"):
             "**Base de valor:** os valores em USD (*Customs Value*) seguem a base FAS, "
             "equivalente a **FOB** - ou seja, sem frete, seguro nem tarifas de importação embutidos."
         )
+
+    _linhas_blocos = []
+    for _b, _nomes in BLOCOS_ECONOMICOS.items():
+        _vistos = []
+        for _n in _nomes:
+            _p = pais_pt(_n)
+            if _p not in _vistos:
+                _vistos.append(_p)
+        _linhas_blocos.append(f"- **{_b}**: " + ", ".join(sorted(_vistos)))
+    st.markdown(tx(
+        "**Blocos econômicos (visão agregada):** além de cada país individualmente, "
+        "é possível ver a soma dos países de um bloco. **Os países que compõem os blocos "
+        "continuam representados de forma individual** em todos os filtros e gráficos; "
+        "o bloco é só uma visão adicional (soma dos seus países). Um país pode estar em "
+        "mais de um bloco (ex.: Canadá e México estão no USMCA e na APEC), então a soma "
+        "dos blocos pode superar o total; países fora de todos os blocos aparecem como "
+        "\"Demais países\". Composição atual:  \n"
+        + "  \n".join(_linhas_blocos) + "  \n"
+        "Observações: os EUA fazem parte do USMCA e da APEC, mas ficam fora da lista por serem "
+        "o país que reporta o comércio; o Mercosul lista os membros plenos (Bolívia incluída, "
+        "Venezuela suspensa e não incluída); a UE considera os 27 membros atuais (sem o Reino Unido); "
+        "a ASEAN inclui Timor-Leste, admitido em 2025."
+    ))
 
 
 with st.expander("Utilização do aplicativo"):
@@ -2008,7 +2097,7 @@ if "df_eua_multi" in st.session_state:
             # Os gráficos de total (Pareto de países e modal) mostram o
             # universo consultado; o modal segue os filtros da barra lateral.
             # ------------------------------------------------------------
-            vias_global, paises_global = [], []
+            vias_global, paises_global, blocos_global = [], [], []
             top5_vias_default, top5_paises_default = [], []
             todas_vias_alfa, todos_paises_alfa = [], []
             ranking_paises = []
@@ -2043,9 +2132,11 @@ if "df_eua_multi" in st.session_state:
             ms_key_vias = f"vias_global_multiselect_{combo_id}"
             ms_key_paises = f"paises_global_multiselect_{combo_id}"
             flag_reset_global = f"filtros_global_reset_flag_{combo_id}"
+            ms_key_blocos = f"blocos_global_multiselect_{combo_id}"
             if st.session_state.get(flag_reset_global):
                 st.session_state[ms_key_vias] = top5_vias_default
                 st.session_state[ms_key_paises] = top5_paises_default
+                st.session_state[ms_key_blocos] = []
                 st.session_state[flag_reset_global] = False
 
             if via_col or country_col:
@@ -2057,7 +2148,7 @@ if "df_eua_multi" in st.session_state:
                         if st.button("Restaurar Top 6", key=f"filtros_global_reset_btn_{combo_id}", use_container_width=True):
                             st.session_state[flag_reset_global] = True
                             st.rerun()
-                    col_fv, col_fp = st.columns(2)
+                    col_fv, col_fp, col_fb = st.columns(3)
                     with col_fv:
                         if via_col:
                             vias_global = st.multiselect(
@@ -2081,6 +2172,19 @@ if "df_eua_multi" in st.session_state:
                                     "Padrão: os 6 países de origem de maior volume de importação no período "
                                     "selecionado. Usado na visão \"Por país\" da evolução no tempo. "
                                     f"Máximo de {MAX_PAISES_GLOBAL} por vez."
+                                ),
+                            )
+                    with col_fb:
+                        if country_col:
+                            blocos_global = st.multiselect(
+                                tx("Blocos econômicos (opcional)"),
+                                options=list(BLOCOS_ECONOMICOS.keys()),
+                                default=[],
+                                key=ms_key_blocos,
+                                help=tx(
+                                    "Adiciona, na visão \"Por país de origem\" da evolução no tempo, um mini-gráfico "
+                                    "com a soma de todos os países do bloco. Os países do bloco continuam "
+                                    "aparecendo individualmente. Composição de cada bloco em \"Fontes e base de valor\"."
                                 ),
                             )
 
@@ -2337,7 +2441,7 @@ if "df_eua_multi" in st.session_state:
 
             _intermitentes_v = []
 
-            def calcular_projecoes(coluna_grupo, nomes=None):
+            def calcular_projecoes(coluna_grupo, nomes=None, blocos=None):
                 """Devolve {nome: Series projetada}. coluna_grupo=None -> total."""
                 try:
                     df_full = dfs_por_medida_full.get(chave_medida)
@@ -2354,6 +2458,9 @@ if "df_eua_multi" in st.session_state:
                     else:
                         agr_full = df_full.groupby(coluna_grupo)[cols_prev].sum(min_count=1)
                         grupos = {n: agr_full.loc[n] for n in (nomes or []) if n in agr_full.index}
+                        for _b in (blocos or []):
+                            _m = df_full[coluna_grupo].map(lambda n, b=_b: pertence_bloco(n, b))
+                            grupos[_b] = df_full[_m][cols_prev].sum(min_count=1)
                     df_wide = pd.DataFrame({"data": [periodo_label_para_data(c) for c in cols_prev]})
                     for nome, serie in grupos.items():
                         valores_j = [serie.get(c, 0) for c in cols_prev]
@@ -2414,26 +2521,31 @@ if "df_eua_multi" in st.session_state:
             elif visao_evolucao == "Por país":
                 periodo_v = recortar_periodo(periodo_cols)
                 nota_ano_em_andamento(periodo_v)
-                if not paises_global:
-                    st.info(tx("Selecione ao menos um país de origem no painel de filtros."))
+                if not paises_global and not blocos_global:
+                    st.info(tx("Selecione ao menos um país de origem (ou bloco) no painel de filtros."))
                 agr = df_fonte_grafico.groupby(country_col)[periodo_v].sum(min_count=1)
                 paises_plot = [c for c in paises_global if c in agr.index]
                 paises_plot.sort(key=lambda c: -agr.loc[c].fillna(0).sum())
+                series_plot = {c: agr.loc[c] for c in paises_plot}
+                for _b in blocos_global:
+                    _m = df_fonte_grafico[country_col].map(lambda n, b=_b: pertence_bloco(n, b))
+                    series_plot[_b] = df_fonte_grafico[_m][periodo_v].sum(min_count=1)
+                itens_plot = paises_plot + list(blocos_global)
                 x_rot = [rotulo_periodo(p) for p in periodo_v]
                 _proj_ok = bool(monthly and periodo_v and periodo_v[-1] == periodo_cols[-1])
                 _intermitentes_v.clear()
-                _proj_p = calcular_projecoes(country_col, paises_plot) if _proj_ok else {}
+                _proj_p = calcular_projecoes(country_col, paises_plot, list(blocos_global)) if _proj_ok else {}
                 if _proj_p:
                     legenda_real_proj()
-                aviso_sem_projecao([pais_pt(n) for n in _intermitentes_v])
-                for i in range(0, len(paises_plot), 2):
+                aviso_sem_projecao([nome_exibicao(n) for n in _intermitentes_v])
+                for i in range(0, len(itens_plot), 2):
                     colsp = st.columns(2)
-                    for j, pais in enumerate(paises_plot[i:i + 2]):
+                    for j, pais in enumerate(itens_plot[i:i + 2]):
                         with colsp[j]:
-                            st.markdown(f"**{tx('País de origem')}: {pais_pt(pais)}**")
+                            st.markdown(f"**{tx('Bloco econômico') if pais in BLOCOS_ECONOMICOS else tx('País de origem')}: {nome_exibicao(pais)}**")
                             figp = go.Figure(go.Bar(
-                                x=x_rot, y=agr.loc[pais].tolist(), name=str(pais_pt(pais)),
-                                marker_color=cor_pais(pais),
+                                x=x_rot, y=series_plot[pais].tolist(), name=str(nome_exibicao(pais)),
+                                marker_color=(cor_bloco(pais) if pais in BLOCOS_ECONOMICOS else cor_pais(pais)),
                                 hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                             ))
                             _sp = _proj_p.get(pais)
@@ -2471,6 +2583,15 @@ if "df_eua_multi" in st.session_state:
             legenda_unidade_hts()
 
             if via_col and country_col:
+                ver_bloco4 = st.toggle(
+                    tx("Ver por bloco econômico (soma dos países de cada bloco)"),
+                    key=f"toggle_bloco4_{combo_id}",
+                )
+                if ver_bloco4:
+                    st.caption(tx(
+                        "Blocos se sobrepõem (ex.: Canadá e México estão no USMCA e na APEC), "
+                        "então os percentuais podem somar mais de 100%. \"Demais países\" = fora de todos os blocos."
+                    ))
                 periodo_visivel4 = recortar_periodo(periodo_cols)
 
                 nota_ano_em_andamento(periodo_visivel4)
@@ -2498,6 +2619,38 @@ if "df_eua_multi" in st.session_state:
 
                                 if not total_via or total_via <= 0:
                                     st.info(tx("Sem dados nessa via de entrada no período selecionado."))
+                                    continue
+
+                                if ver_bloco4:
+                                    df_b4 = agregar_blocos(
+                                        df_fonte_grafico[df_fonte_grafico[via_col] == via],
+                                        country_col, periodo_visivel4,
+                                    )
+                                    nomes_b4 = df_b4["Bloco"].tolist()[::-1]
+                                    vals_b4 = df_b4["_valor"].tolist()[::-1]
+                                    perc_b4 = [v / total_via * 100 for v in vals_b4]
+                                    figb4 = go.Figure(go.Bar(
+                                        x=perc_b4, y=nomes_b4, orientation="h",
+                                        marker_color=[cor_bloco(n) for n in nomes_b4],
+                                        text=[f"{v:,.0f}".replace(",", ".") for v in vals_b4],
+                                        textposition="outside", cliponaxis=False,
+                                        customdata=vals_b4,
+                                        hovertemplate="%{y}<br>%{x:.1f}% do total da via de entrada<br>%{customdata:,.0f}<extra></extra>",
+                                    ))
+                                    figb4.update_layout(
+                                        xaxis_title=tx("% do total nessa via de entrada"),
+                                        xaxis=dict(range=[0, max(perc_b4) * 1.25]),
+                                        yaxis=dict(categoryorder="array", categoryarray=nomes_b4),
+                                        plot_bgcolor="#DBF7FF", paper_bgcolor="white",
+                                        height=350, showlegend=False,
+                                        margin=dict(t=30, b=40, l=120, r=80),
+                                    )
+                                    figb4.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                    figb4.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                    st.plotly_chart(
+                                        aplicar_rotulos_dados(figb4), use_container_width=True,
+                                        key="grafico4b_" + re.sub(r"\W+", "_", str(via).lower()) + f"_{combo_id}",
+                                    )
                                     continue
 
                                 top5_via = df_via_pais.head(5)
@@ -2842,6 +2995,10 @@ if "df_eua_multi" in st.session_state:
             legenda_unidade_hts()
 
             if country_col:
+                ver_bloco5 = st.toggle(
+                    tx("Ver por bloco econômico (soma dos países de cada bloco)"),
+                    key=f"toggle_bloco5_{combo_id}",
+                )
                 periodo_visivel5 = recortar_periodo(periodo_cols)
 
                 nota_ano_em_andamento(periodo_visivel5)
@@ -2855,7 +3012,33 @@ if "df_eua_multi" in st.session_state:
 
                 total_geral5 = df_pais5["_valor"].sum()
 
-                if total_geral5 and total_geral5 > 0:
+                if ver_bloco5 and total_geral5 and total_geral5 > 0:
+                    st.caption(tx(
+                        "Visão por bloco: barras = soma dos países de cada bloco (sem linha de % acumulado, "
+                        "pois blocos se sobrepõem; ex.: Canadá e México estão no USMCA e na APEC). "
+                        "\"Demais países\" = fora de todos os blocos."
+                    ))
+                    df_b5 = agregar_blocos(df_fonte_grafico, country_col, periodo_visivel5)
+                    nomes_b5 = df_b5["Bloco"].tolist()
+                    vals_b5 = df_b5["_valor"].tolist()
+                    figb5 = go.Figure(go.Bar(
+                        x=nomes_b5, y=vals_b5,
+                        marker_color=[cor_bloco(n) for n in nomes_b5],
+                        text=[f"{v:,.0f}".replace(",", ".") for v in vals_b5],
+                        textposition="outside", cliponaxis=False,
+                        customdata=[v / total_geral5 * 100 for v in vals_b5],
+                        hovertemplate="%{x}<br>%{y:,.0f}<br>%{customdata:.1f}% do total<extra></extra>",
+                    ))
+                    figb5.update_layout(
+                        xaxis_title=tx("Bloco econômico"), yaxis_title=titulo_eixo_metrica,
+                        yaxis=dict(range=[0, max(vals_b5) * 1.3]),
+                        plot_bgcolor="#DBF7FF", paper_bgcolor="white", height=550,
+                        showlegend=False, margin=dict(t=40, b=60, l=60, r=60),
+                    )
+                    figb5.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    figb5.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                    st.plotly_chart(aplicar_rotulos_dados(figb5), use_container_width=True, key=f"grafico5_bloco_{combo_id}")
+                elif total_geral5 and total_geral5 > 0:
                     df_pais5["_perc_acumulado"] = df_pais5["_valor"].cumsum() / total_geral5
                     # Pareto 80-20: menor conjunto de países que soma >= 80% do total;
                     # o restante vira "Outros".
