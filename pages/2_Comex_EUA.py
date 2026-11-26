@@ -637,8 +637,8 @@ if hts_codes:
         )
         if falhou_v:
             st.sidebar.caption(
-                "⚠️ Não foi possível listar as vias deste(s) HTS agora. "
-                "Exibindo todas as opções."
+                tx("⚠️ Não foi possível listar as vias de entrada deste(s) HTS agora. "
+                   "Exibindo todas as opções.")
             )
 
         if not vias_opcoes:
@@ -1370,7 +1370,7 @@ if "df_eua_multi" in st.session_state:
             c: n for c, n in {
                 hts_col: "Código HTS", desc_col: "Descrição HTS",
                 "HTS Number": "Código HTS", "Description": "Descrição HTS",
-                "District": "Distrito",
+                "District": tx("Via de Entrada"),
             }.items() if c and c in df_longo.columns
         })
 
@@ -1506,7 +1506,7 @@ if "df_eua_multi" in st.session_state:
             c: n for c, n in {
                 hts_col: "Código HTS", desc_col: "Descrição HTS",
                 "HTS Number": "Código HTS", "Description": "Descrição HTS",
-                "District": "Distrito",
+                "District": tx("Via de Entrada"),
             }.items() if c and c in df_longo.columns
         })
 
@@ -2052,7 +2052,7 @@ if "df_eua_multi" in st.session_state:
                 with painel_filtros:
                     col_titulo_f, col_btn_f = st.columns([5, 1])
                     with col_titulo_f:
-                        st.markdown(tx("**Filtros dos gráficos** — o padrão são as vias e os países de maior volume de importação no período selecionado"))
+                        st.markdown(tx("**Filtros dos gráficos** — o padrão são as vias de entrada e os países de origem de maior volume de importação no período selecionado"))
                     with col_btn_f:
                         if st.button("Restaurar Top 6", key=f"filtros_global_reset_btn_{combo_id}", use_container_width=True):
                             st.session_state[flag_reset_global] = True
@@ -2105,11 +2105,11 @@ if "df_eua_multi" in st.session_state:
             visao_evolucao = st.radio(
                 "Visão da evolução no tempo",
                 options=opcoes_visao,
-                format_func=lambda o: tx("Por país de origem") if o == "Por país" else tx(o),
+                format_func=lambda o: tx("Por país de origem") if o == "Por país" else (tx("Por via de entrada") if o == "Por via" else o),
                 index=opcoes_visao.index("Por via") if "Por via" in opcoes_visao else 0,
                 horizontal=True,
                 key=f"visao_evolucao_{combo_id}",
-                help=tx("Total: soma de tudo. Por via: um mini-gráfico por via (com projeção no modo Mensal). "
+                help=tx("Total: soma de tudo. Por via de entrada: um mini-gráfico por via de entrada (com projeção no modo Mensal). "
                         "Por país de origem: um mini-gráfico por país escolhido no painel de filtros."),
             )
 
@@ -2298,7 +2298,7 @@ if "df_eua_multi" in st.session_state:
                                                 hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                                             )
                                         )
-                                st.markdown(titulo_via_html(via), unsafe_allow_html=True)
+                                st.markdown(titulo_via_html(via, prefixo=tx("Via de Entrada: ")), unsafe_allow_html=True)
                                 fig.update_layout(
                                     height=290,
                                     plot_bgcolor="#DBF7FF",
@@ -2526,7 +2526,7 @@ if "df_eua_multi" in st.session_state:
                                         textposition="outside",
                                         cliponaxis=False,
                                         customdata=valores4[::-1],
-                                        hovertemplate="%{y}<br>%{x:.1f}% do total da via<br>%{customdata:,.0f}<extra></extra>",
+                                        hovertemplate="%{y}<br>%{x:.1f}% do total da via de entrada<br>%{customdata:,.0f}<extra></extra>",
                                     )
                                 )
                                 fig4.update_layout(
@@ -2646,7 +2646,7 @@ if "df_eua_multi" in st.session_state:
                         tx("Sem dados de modal de transporte para essa combinação de "
                         "HTS, período, país e/ou via de entrada. Isso pode acontecer "
                         "porque: (1) o HTS foi revisado na classificação usada por "
-                        "essa fonte, ou (2) o país/via filtrado não teve comércio "
+                        "essa fonte, ou (2) o país de origem/via de entrada filtrado não teve comércio "
                         "registrado nesse recorte. Tente ampliar os filtros, o "
                         "intervalo de anos, ou usar outro HTS.")
                     )
