@@ -2425,7 +2425,7 @@ if "df_eua_multi" in st.session_state:
                 _proj_p = calcular_projecoes(country_col, paises_plot) if _proj_ok else {}
                 if _proj_p:
                     legenda_real_proj()
-                aviso_sem_projecao(list(_intermitentes_v))
+                aviso_sem_projecao([pais_pt(n) for n in _intermitentes_v])
                 for i in range(0, len(paises_plot), 2):
                     colsp = st.columns(2)
                     for j, pais in enumerate(paises_plot[i:i + 2]):
