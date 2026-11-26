@@ -714,12 +714,31 @@ if hts_codes:
                "no intervalo de anos selecionado.")
         )
     else:
-        countries = st.sidebar.multiselect(
-            tx("Países de origem (opcional - vazio = todos)"),
-            options=sorted(paises_opcoes, key=ordem_pais_pt),
+        _PREF_BLOCO = "BLOCO::"
+        _sel_paises = st.sidebar.multiselect(
+            tx("Países de origem ou blocos econômicos (opcional - vazio = todos)"),
+            options=[_PREF_BLOCO + b for b in BLOCOS_ECONOMICOS] + sorted(paises_opcoes, key=ordem_pais_pt),
             default=[],
-            format_func=pais_pt,
+            format_func=lambda o: (
+                tx("Bloco: ") + o[len(_PREF_BLOCO):] if o.startswith(_PREF_BLOCO) else pais_pt(o)
+            ),
+            help=tx(
+                "Escolher um bloco econômico filtra a consulta para os países desse bloco "
+                "(somente esses países aparecerão no dashboard). Você pode combinar blocos e países."
+            ),
         )
+        # Blocos escolhidos viram a lista dos países que pertencem a eles.
+        countries = [c for c in _sel_paises if not c.startswith(_PREF_BLOCO)]
+        for _sb in [c[len(_PREF_BLOCO):] for c in _sel_paises if c.startswith(_PREF_BLOCO)]:
+            _membros = [c for c in paises_opcoes if pertence_bloco(c, _sb)]
+            if not _membros:
+                _membros = [c for c in COUNTRY_CODES if pertence_bloco(c, _sb)]
+                st.sidebar.warning(tx(f"Nenhum país do bloco {_sb} tem comércio registrado para esse(s) HTS e anos."))
+            else:
+                st.sidebar.caption(tx(f"{_sb}: {len(_membros)} país(es) com comércio incluído(s) na consulta."))
+            for _m in _membros:
+                if _m not in countries:
+                    countries.append(_m)
 
         vias_opcoes, falhou_v = _listar_opcoes(
             hts_t, tuple(sorted(countries)), "via", tx("Buscando as vias de entrada...")
