@@ -202,6 +202,65 @@ _TERMOS_EXPORT = [
     ("Origem", "Destino"), ("origem", "destino"),
 ]
 
+_PAISES_PT = {
+'United States of America':'Estados Unidos','Greenland':'Groenlândia','Canada':'Canadá','Saint Pierre and Miquelon':'Saint-Pierre e Miquelon','Mexico':'México','Guatemala':'Guatemala','Belize':'Belize','El Salvador':'El Salvador','Honduras':'Honduras','Nicaragua':'Nicarágua','Costa Rica':'Costa Rica','Panama':'Panamá','Bermuda':'Bermudas','Bahamas':'Bahamas','Cuba':'Cuba','Jamaica':'Jamaica','Turks and Caicos Islands':'Ilhas Turcas e Caicos','Cayman Islands':'Ilhas Cayman','Haiti':'Haiti','Dominican Republic':'República Dominicana','Anguilla':'Anguilla','British Virgin Islands':'Ilhas Virgens Britânicas','Saint Kitts and Nevis':'São Cristóvão e Névis','Antigua and Barbuda':'Antígua e Barbuda','Montserrat':'Montserrat','Dominica':'Dominica','Saint Lucia':'Santa Lúcia','Saint Vincent and the Grenadines':'São Vicente e Granadinas','Grenada':'Granada','Barbados':'Barbados','Trinidad and Tobago':'Trinidad e Tobago','Sint Maarten':'Sint Maarten','Curacao':'Curaçao','Aruba':'Aruba','Guadeloupe':'Guadalupe','Martinique':'Martinica','Colombia':'Colômbia','Venezuela':'Venezuela','Guyana':'Guiana','Suriname':'Suriname','French Guiana':'Guiana Francesa','Ecuador':'Equador','Peru':'Peru','Bolivia':'Bolívia','Chile':'Chile','Brazil':'Brasil','Mongolia':'Mongólia','Paraguay':'Paraguai','Uruguay':'Uruguai','Argentina':'Argentina','Falkland Islands (Islas Malvinas)':'Ilhas Malvinas (Falkland)','Iceland':'Islândia','Sweden':'Suécia','Svalbard and Jan Mayen':'Svalbard e Jan Mayen','Norway':'Noruega','Finland':'Finlândia','Faroe Islands':'Ilhas Faroé','Denmark, except Greenland':'Dinamarca (exceto Groenlândia)','United Kingdom':'Reino Unido','Ireland':'Irlanda','Netherlands':'Países Baixos','Belgium':'Bélgica','Luxembourg':'Luxemburgo','Andorra':'Andorra','Monaco':'Mônaco','France':'França','Germany (Federal Republic of Germany)':'Alemanha','Austria':'Áustria','Czech Republic':'Tchéquia','Slovakia':'Eslováquia','Hungary':'Hungria','Liechtenstein':'Liechtenstein','Switzerland':'Suíça','Estonia':'Estônia','Latvia':'Letônia','Lithuania':'Lituânia','Poland':'Polônia','Russia':'Rússia','Belarus':'Belarus','Ukraine':'Ucrânia','Armenia':'Armênia','Azerbaijan':'Azerbaijão','Georgia':'Geórgia','Kazakhstan':'Cazaquistão','Kyrgyzstan':'Quirguistão','Moldova (Republic of Moldova)':'Moldávia','Tajikistan':'Tajiquistão','Turkmenistan':'Turcomenistão','Uzbekistan':'Uzbequistão','Spain':'Espanha','Portugal':'Portugal','Gibraltar':'Gibraltar','Malta':'Malta','San Marino':'San Marino','Holy See (Vatican City)':'Vaticano','Italy':'Itália','Croatia':'Croácia','Slovenia':'Eslovênia','Bosnia and Herzegovina':'Bósnia e Herzegovina','North Macedonia':'Macedônia do Norte','Serbia':'Sérvia','Kosovo':'Kosovo','Montenegro':'Montenegro','Albania':'Albânia','Greece':'Grécia','Romania':'Romênia','Bulgaria':'Bulgária','Turkey':'Turquia','Cyprus':'Chipre','Syria (Syrian Arab Republic)':'Síria','Lebanon':'Líbano','Iraq':'Iraque','Iran':'Irã','Israel':'Israel','Gaza Strip administered by Israel':'Faixa de Gaza (adm. por Israel)','West Bank administered by Israel':'Cisjordânia (adm. por Israel)','Jordan':'Jordânia','Kuwait':'Kuwait','Saudi Arabia':'Arábia Saudita','Qatar':'Catar','United Arab Emirates':'Emirados Árabes Unidos','Yemen (Republic of Yemen)':'Iêmen','Oman':'Omã','Bahrain':'Bahrein','Afghanistan':'Afeganistão','India':'Índia','Pakistan':'Paquistão','Nepal':'Nepal','Bangladesh':'Bangladesh','Sri Lanka':'Sri Lanka','Burma (Myanmar)':'Mianmar','Thailand':'Tailândia','Vietnam':'Vietnã',"Laos (Lao People's Democratic Republic)":'Laos','Cambodia':'Camboja','Malaysia':'Malásia','Singapore':'Singapura','Indonesia':'Indonésia','Timor-Leste':'Timor-Leste','Brunei':'Brunei','Philippines':'Filipinas','Macao':'Macau','Bhutan':'Butão','Maldives':'Maldivas','China':'China',"North Korea (Democratic People's Republic of Korea)":'Coreia do Norte','South Korea (Republic of Korea)':'Coreia do Sul','Hong Kong':'Hong Kong','Taiwan':'Taiwan','Japan':'Japão','Australia':'Austrália','Norfolk Island':'Ilha Norfolk','Cocos (Keeling) Islands':'Ilhas Cocos (Keeling)','Christmas Island (in the Indian Ocean)':'Ilha Christmas','Heard Island and McDonald Islands':'Ilhas Heard e McDonald','Papua New Guinea':'Papua-Nova Guiné','New Zealand':'Nova Zelândia','Cook Islands':'Ilhas Cook','Tokelau':'Tokelau','Niue':'Niue','Samoa (Western Samoa)':'Samoa','Solomon Islands':'Ilhas Salomão','Vanuatu':'Vanuatu','Pitcairn Islands':'Ilhas Pitcairn','Kiribati':'Quiribati','Tuvalu':'Tuvalu','New Caledonia':'Nova Caledônia','Wallis and Futuna':'Wallis e Futuna','French Polynesia':'Polinésia Francesa','Marshall Islands':'Ilhas Marshall','Micronesia, Federated States of':'Micronésia','Palau':'Palau','Nauru':'Nauru','Fiji':'Fiji','Tonga':'Tonga','Morocco':'Marrocos','Algeria':'Argélia','Tunisia':'Tunísia','Libya':'Líbia','Egypt':'Egito','Sudan':'Sudão','South Sudan':'Sudão do Sul','Western Sahara':'Saara Ocidental','Equatorial Guinea':'Guiné Equatorial','Mauritania':'Mauritânia','Cameroon':'Camarões','Senegal':'Senegal','Mali':'Mali','Guinea':'Guiné','Sierra Leone':'Serra Leoa',"Cote d'Ivoire":'Costa do Marfim','Ghana':'Gana','Gambia':'Gâmbia','Niger':'Níger','Togo':'Togo','Nigeria':'Nigéria','Central African Republic':'República Centro-Africana','Gabon':'Gabão','Chad':'Chade','Saint Helena':'Santa Helena','Burkina Faso':'Burkina Faso','Benin':'Benin','Angola':'Angola','Congo, Republic of the Congo':'Congo','Guinea-Bissau':'Guiné-Bissau','Cabo Verde':'Cabo Verde','Sao Tome and Principe':'São Tomé e Príncipe','Liberia':'Libéria','Congo, Democratic Republic of the Congo (formerly Zaire)':'República Democrática do Congo','Burundi':'Burundi','Rwanda':'Ruanda','Somalia':'Somália','Eritrea':'Eritreia','Ethiopia':'Etiópia','Djibouti':'Djibuti','Uganda':'Uganda','Kenya':'Quênia','Seychelles':'Seicheles','British Indian Ocean Territory':'Território Britânico do Oceano Índico','Tanzania (United Republic of Tanzania)':'Tanzânia','Mauritius':'Maurício','Mozambique':'Moçambique','Madagascar':'Madagascar','Mayotte':'Mayotte','Comoros':'Comores','Reunion':'Reunião','French Southern and Antarctic Lands':'Terras Austrais e Antárticas Francesas','South Africa':'África do Sul','Namibia':'Namíbia','Botswana':'Botsuana','Zambia':'Zâmbia','Eswatini':'Essuatíni','Zimbabwe':'Zimbábue','Malawi':'Maláui','Lesotho':'Lesoto','Puerto Rico':'Porto Rico','Virgin Islands of the United States':'Ilhas Virgens Americanas','Guam':'Guam','American Samoa':'Samoa Americana','Northern Mariana Islands':'Ilhas Marianas do Norte','United States Minor Outlying Islands':'Ilhas Menores Distantes dos EUA',
+}
+
+
+def ordem_pais_pt(nome):
+    """Chave de ordenação alfabética pelo nome em português (ignora acentos)."""
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(pais_pt(nome)))
+    return "".join(ch for ch in t if not unicodedata.combining(ch)).lower()
+
+
+def pais_pt(nome):
+    """Nome do país em português (só exibição; os dados e filtros seguem em inglês)."""
+    return _PAISES_PT.get(str(nome), nome)
+
+
+_UNIDADES_PT = {
+    "kilograms": "quilogramas", "kilogram": "quilograma", "number": "unidades",
+    "dozen": "dúzias", "dozen pairs": "dúzias de pares", "pairs": "pares",
+    "pair": "par", "square meters": "metros quadrados", "liters": "litros",
+    "proof liters": "litros de álcool puro (proof)", "cubic meters": "metros cúbicos",
+    "metric tons": "toneladas métricas", "grams": "gramas", "gross": "grosas",
+    "thousand units": "milhares de unidades", "thousands of units": "milhares de unidades",
+    "square yards": "jardas quadradas", "linear meters": "metros lineares",
+    "barrels": "barris", "carats": "quilates", "gallons": "galões",
+    "square feet": "pés quadrados", "pounds": "libras", "short tons": "toneladas curtas",
+    "troy ounces": "onças troy", "square centimeters": "centímetros quadrados",
+    "kilograms of total sugars": "quilogramas de açúcares totais",
+    "kilograms of u-235": "quilogramas de U-235", "no quantity": "sem quantidade",
+}
+
+
+@st.cache_data(show_spinner=False)
+def _traduzir_unidade_cached(u):
+    chave = u.strip().lower()
+    if chave in _UNIDADES_PT:
+        return _UNIDADES_PT[chave]
+    # Unidade fora do dicionário: tradução automática (se disponível);
+    # em qualquer falha, mantém o texto original.
+    try:
+        from deep_translator import GoogleTranslator
+        t = GoogleTranslator(source="en", target="pt").translate(u)
+        return t.strip().lower() if t else u
+    except Exception:
+        return u
+
+
+def traduzir_unidade(u):
+    """Traduz a unidade de medida (DataWeb vem em inglês) para português.
+    Só traduz a unidade -- descrições HTS e distritos não são traduzidos."""
+    if u is None or (isinstance(u, float) and u != u):
+        return u
+    u = str(u).replace("Value for: ", "").strip()
+    if not u or u.lower() == "nan":
+        return u
+    return _traduzir_unidade_cached(u)
+
+
 def tx(texto):
     """Troca a terminologia de importação pela de exportação (só no modo
     Exportação; no modo Importação devolve o texto sem alteração)."""
@@ -521,8 +580,9 @@ if hts_codes:
     else:
         countries = st.sidebar.multiselect(
             tx("Países de origem (opcional - vazio = todos)"),
-            options=paises_opcoes,
+            options=sorted(paises_opcoes, key=ordem_pais_pt),
             default=[],
+            format_func=pais_pt,
         )
 
         vias_opcoes, falhou_v = _listar_opcoes(
@@ -1201,6 +1261,7 @@ if "df_eua_multi" in st.session_state:
         if "Quantity Description" in df_agg.columns:
             df_agg["Quantity Description"] = (
                 df_agg["Quantity Description"].astype(str).str.replace("Value for: ", "", regex=False)
+                .map(traduzir_unidade)
             )
             df_agg = df_agg.rename(columns={"Quantity Description": "Unidade de Medida"})
 
@@ -1253,6 +1314,18 @@ if "df_eua_multi" in st.session_state:
         meio = [c for c in cols_df if c not in inicio and c not in fim and c != nome_valor]
         ordem = inicio + meio + [nome_valor] + fim
         df_longo = df_longo[ordem].sort_values("Data").reset_index(drop=True)
+        for _c in list(df_longo.columns):
+            _v = df_longo[_c].dropna().astype(str)
+            if len(_v) and _v.isin(COUNTRY_CODES.keys()).mean() >= 0.5:
+                df_longo[_c] = df_longo[_c].map(lambda x: pais_pt(x) if isinstance(x, str) else x)
+                df_longo = df_longo.rename(columns={_c: tx("País de origem")})
+        df_longo = df_longo.rename(columns={
+            c: n for c, n in {
+                hts_col: "Código HTS", desc_col: "Descrição HTS",
+                "HTS Number": "Código HTS", "Description": "Descrição HTS",
+                "District": "Distrito",
+            }.items() if c and c in df_longo.columns
+        })
 
         return df_longo, periodo_cols
 
@@ -1320,6 +1393,7 @@ if "df_eua_multi" in st.session_state:
                 df_tot["Quantity Description"]
                 .astype(str)
                 .str.replace("Value for: ", "", regex=False)
+                .map(traduzir_unidade)
             )
             df_tot = df_tot.rename(columns={"Quantity Description": "Unidade de Medida"})
 
@@ -1376,6 +1450,18 @@ if "df_eua_multi" in st.session_state:
         meio = [c for c in cols_df if c not in inicio and c not in fim and c != nome_valor]
         ordem = inicio + meio + [nome_valor] + fim
         df_longo = df_longo[ordem].sort_values("Data").reset_index(drop=True)
+        for _c in list(df_longo.columns):
+            _v = df_longo[_c].dropna().astype(str)
+            if len(_v) and _v.isin(COUNTRY_CODES.keys()).mean() >= 0.5:
+                df_longo[_c] = df_longo[_c].map(lambda x: pais_pt(x) if isinstance(x, str) else x)
+                df_longo = df_longo.rename(columns={_c: tx("País de origem")})
+        df_longo = df_longo.rename(columns={
+            c: n for c, n in {
+                hts_col: "Código HTS", desc_col: "Descrição HTS",
+                "HTS Number": "Código HTS", "Description": "Descrição HTS",
+                "District": "Distrito",
+            }.items() if c and c in df_longo.columns
+        })
 
         return df_longo
 
@@ -1770,7 +1856,7 @@ if "df_eua_multi" in st.session_state:
                 .str.replace("Value for: ", "", regex=False)
                 .unique()
             )
-            unidades_txt = ", ".join(sorted(u for u in _un if u and u != "nan"))
+            unidades_txt = ", ".join(sorted({traduzir_unidade(u) for u in _un if u and u != "nan"}))
         titulo_eixo_metrica = (
             f"Quantidade ({unidades_txt})" if unidades_txt else metrica_grafico
         )
@@ -1793,7 +1879,7 @@ if "df_eua_multi" in st.session_state:
                     .str.replace("Value for: ", "", regex=False)
                     .unique()
                 )
-                unidades_txt = ", ".join(sorted(u for u in unidades if u and u != "nan"))
+                unidades_txt = ", ".join(sorted({traduzir_unidade(u) for u in unidades if u and u != "nan"}))
                 if unidades_txt:
                     linhas.append(f"Unidade de medida: {unidades_txt}")
             for linha in linhas:
@@ -1903,7 +1989,7 @@ if "df_eua_multi" in st.session_state:
                 _dp = _dp.sort_values("_total", ascending=False)
                 ranking_paises = _dp[country_col].tolist()
                 top5_paises_default = sorted(_dp[_dp["_total"] > 0][country_col].tolist()[:6])
-                todos_paises_alfa = sorted(ranking_paises)
+                todos_paises_alfa = sorted(ranking_paises, key=ordem_pais_pt)
 
             MAX_VIAS_GLOBAL = 6
             MAX_PAISES_GLOBAL = 12
@@ -1941,6 +2027,7 @@ if "df_eua_multi" in st.session_state:
                                 tx("Países de origem exibidos"),
                                 options=todos_paises_alfa,
                                 default=top5_paises_default,
+                                format_func=pais_pt,
                                 key=ms_key_paises,
                                 max_selections=MAX_PAISES_GLOBAL,
                                 help=tx(
@@ -2169,7 +2256,8 @@ if "df_eua_multi" in st.session_state:
                                     height=290,
                                     plot_bgcolor="#DBF7FF",
                                     paper_bgcolor="white",
-                                    margin=dict(t=15, b=40, l=40, r=20),
+                                    yaxis_title=titulo_eixo_metrica,
+                                    margin=dict(t=15, b=40, l=70, r=20),
                                     showlegend=False,
                                 )
                                 fig.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
@@ -2295,9 +2383,9 @@ if "df_eua_multi" in st.session_state:
                     colsp = st.columns(2)
                     for j, pais in enumerate(paises_plot[i:i + 2]):
                         with colsp[j]:
-                            st.markdown(f"**{tx('País de origem')}: {pais}**")
+                            st.markdown(f"**{tx('País de origem')}: {pais_pt(pais)}**")
                             figp = go.Figure(go.Bar(
-                                x=x_rot, y=agr.loc[pais].tolist(), name=str(pais),
+                                x=x_rot, y=agr.loc[pais].tolist(), name=str(pais_pt(pais)),
                                 marker_color=cor_pais(pais),
                                 hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                             ))
@@ -2311,7 +2399,8 @@ if "df_eua_multi" in st.session_state:
                                 ))
                             figp.update_layout(
                                 height=290, plot_bgcolor="#DBF7FF", paper_bgcolor="white",
-                                margin=dict(t=15, b=40, l=40, r=20), showlegend=False,
+                                yaxis_title=titulo_eixo_metrica,
+                                margin=dict(t=15, b=40, l=70, r=20), showlegend=False,
                             )
                             figp.update_xaxes(type="category", showline=True, linewidth=2, linecolor="#042373", mirror=True)
                             figp.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
@@ -2376,7 +2465,7 @@ if "df_eua_multi" in st.session_state:
                                 percentuais4 = [v / total_via * 100 for v in valores4]
                                 cores4 = [cor_pais(l) for l in labels4]
 
-                                labels4_h = labels4[::-1]
+                                labels4_h = [pais_pt(l) for l in labels4][::-1]
                                 percentuais4_h = percentuais4[::-1]
                                 cores4_h = cores4[::-1]
 
@@ -2730,7 +2819,7 @@ if "df_eua_multi" in st.session_state:
                     df_top = df_pais5.iloc[: idx_limite5 + 1].copy()
                     outros_valor5 = df_pais5["_valor"].iloc[idx_limite5 + 1:].sum()
 
-                    labels5 = df_top[country_col].tolist()
+                    labels5 = [pais_pt(x) for x in df_top[country_col].tolist()]
                     valores5 = df_top["_valor"].tolist()
                     acumulado5 = (df_top["_perc_acumulado"] * 100).tolist()
                     if outros_valor5 > 0:
