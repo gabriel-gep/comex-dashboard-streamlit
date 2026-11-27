@@ -19,6 +19,7 @@ from dataweb_client import (
     build_export_query,
     truncate_hts_for_export,
     export_hts_plan,
+    import_hts_plan,
     EXPORT_TRADE_TYPES,
     run_report,
     parse_report,
@@ -410,10 +411,11 @@ with st.expander("Fontes e base de valor"):
     if eh_export:
         st.markdown(
             "**Fontes:** USITC DataWeb (dados oficiais de comércio exterior dos EUA). "
-            f"Consulta de **Exportações {'domésticas' if tipo_export == 'Export' else 'totais'}** "
-            + ("(*Domestic Exports*: bens produzidos nos EUA)." if tipo_export == "Export"
-               else "(*Total Exports*: domésticas + reexportações).")
-            + "  \n\n"
+            "Há dois tipos de exportação, escolhidos no filtro da barra lateral: "
+            "**Exportações domésticas** (*Domestic Exports*: bens produzidos nos EUA) e "
+            "**Exportações totais** (*Total Exports*: domésticas + reexportações, isto é, bens "
+            "estrangeiros enviados de volta ao exterior). "
+            f"Tipo selecionado agora: **{'domésticas' if tipo_export == 'Export' else 'totais'}**.  \n\n"
             "**Regras de código para EXPORTAÇÃO** (numeração **Schedule B**):  \n"
             "- **6 dígitos:** igual ao HTS de importação (ex.: `090210`). Sempre aceito.  \n"
             "- **10 dígitos:** número da **Schedule B**, que **não é o mesmo** do HTS de importação "
@@ -435,9 +437,11 @@ with st.expander("Fontes e base de valor"):
             "Consulta cobre **Importações** (Import For Consumption). "
             "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb.  \n\n"
             "**Regras de código para IMPORTAÇÃO** (numeração **HTS**, *Harmonized Tariff Schedule*):  \n"
-            "- Os resultados são detalhados no nível de **10 dígitos** (HTS-10), o mais específico.  \n"
-            "- Você pode digitar o código completo de 10 dígitos ou um código mais curto (ex.: 6 dígitos), "
-            "conforme aceito pelo DataWeb.  \n"
+            "- Os resultados aparecem no nível do código digitado; para o máximo de detalhe, use 10 dígitos (HTS-10).  \n"
+            "- São aceitos códigos de **6, 8 ou 10 dígitos** (ex.: `090210`, `09021010`, `0902101010`). "
+            "Os resultados vêm no mesmo nível do código digitado (6, 8 ou 10 dígitos).  \n"
+            "- **Não misture tamanhos** na mesma busca: se misturar, todos os códigos são reduzidos ao "
+            "menor nível informado.  \n"
             "- O HTS de importação **não é igual** ao código de exportação (Schedule B) a partir do 7º dígito: "
             "ao trocar para Exportação, use 6 dígitos ou um número válido da Schedule B.  \n\n"
             "**Base de valor (filtro na barra lateral):** **FOB** (*Customs Value*, padrão) é o valor "
@@ -613,8 +617,9 @@ hts_input = st.sidebar.text_area(
     value="",
     placeholder="Ex: 0306144030",
     help=(
-        "Ex: 0306144030 ou 2505.10.10.00 — pontos são removidos "
-        "automaticamente. Pode informar vários, um por linha."
+        "Aceita códigos de 6, 8 ou 10 dígitos (ex: 090210, 09021010 ou 0902.10.10.15) — pontos "
+        "são removidos automaticamente. Pode informar vários, um por linha, todos com o mesmo "
+        "tamanho (se misturar, todos são reduzidos ao menor)."
     ),
 )
 _raw_lines = [c.strip() for c in hts_input.splitlines() if c.strip()]
@@ -635,6 +640,14 @@ if eh_export:
             "ℹ️ Em exportação só existem códigos de **6 dígitos** (iguais ao HTS) ou de **10 dígitos** "
             "(Schedule B, quando todos os códigos informados têm 10). Os códigos informados foram "
             "reduzidos a 6 dígitos (" + ", ".join(hts_codes) + ")."
+        )
+else:
+    _hts_originais = list(hts_codes)
+    hts_codes, _gran_import = import_hts_plan(hts_codes)
+    if hts_codes != _hts_originais:
+        st.sidebar.caption(
+            "ℹ️ Não é possível misturar tamanhos de código na mesma busca. Todos foram reduzidos ao "
+            f"menor nível informado (**{_gran_import} dígitos**): " + ", ".join(hts_codes) + "."
         )
 
 aggregate_commodities = False  # sempre desagregado -- ver "Totais por HTS" na tabela
