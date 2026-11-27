@@ -42,7 +42,20 @@ def label_pt(label_original: str) -> str:
 # Na exportação o DataWeb chama a medida de valor de "FAS Value" (na
 # importação é "Customs Value"). O resto da página usa as chaves da
 # importação, então os rótulos de exportação são convertidos para elas.
-LABEL_EXPORT_PARA_CANONICO = {"FAS Value": "Customs Value"}
+LABEL_EXPORT_PARA_CANONICO = {
+    "FAS Value": "Customs Value",
+    # Importação com outra base de valor (CIF; CIF - FOB = frete e seguro):
+    # internamente continuam sendo "a medida de valor".
+    "CIF Import Value": "Customs Value",
+    "Charges, Insurance, and Freight": "Customs Value",
+}
+
+# Base de valor (só importação): rótulo -> medida da API do DataWeb
+BASES_VALOR_IMPORT = {
+    "FOB (Customs Value)": ("CONS_CUSTOMS_VALUE", "FOB"),
+    "CIF (inclui frete e seguro)": ("CONS_COST_INS_FREIGHT", "CIF"),
+    "CIF − FOB (frete e seguro)": ("CONS_CHARGES_INS_FREIGHT", "Frete e seguro"),
+}
 
 def label_canonico(label: str) -> str:
     return LABEL_EXPORT_PARA_CANONICO.get(label, label)
@@ -401,8 +414,9 @@ with st.expander("Fontes e base de valor"):
                else "(*Total Exports*: domésticas + reexportações)")
             + ", por código HTS de até **6 dígitos** (exportações não têm nível oficial de 8 ou 10 dígitos; "
             "códigos maiores são reduzidos automaticamente aos 6 primeiros).  \n"
-            "**Base de valor:** os valores em USD (*FAS Value*) são *Free Alongside Ship*: "
-            "valor da mercadoria no porto de embarque nos EUA, sem frete nem seguro internacionais.  \n"
+            "**Base de valor:** em exportação só existe **FAS** (*FAS Value*, *Free Alongside Ship*): "
+            "valor da mercadoria no porto de embarque nos EUA, sem frete nem seguro internacionais "
+            "(comparável ao FOB). CIF só existe para importações.  \n"
             "O gráfico de Modal de Transporte (Census API) ainda não está disponível para Exportações."
         )
     else:
@@ -411,8 +425,12 @@ with st.expander("Fontes e base de valor"):
             "(dados oficiais de comércio exterior dos EUA). "
             "Consulta cobre **Importações** (Import For Consumption), por código HTS. "
             "O gráfico de Modal de Transporte usa a Census API; os demais usam o DataWeb.  \n"
-            "**Base de valor:** os valores em USD (*Customs Value*) seguem a base FAS, "
-            "equivalente a **FOB** - ou seja, sem frete, seguro nem tarifas de importação embutidos."
+            "**Base de valor (filtro na barra lateral):** **FOB** (*Customs Value*, padrão) é o valor "
+            "aduaneiro: preço pago ou a pagar pela mercadoria, sem frete, seguro nem tarifas de importação. "
+            "**CIF** (*CIF Import Value*) é o Customs Value mais frete, seguro e outras despesas até o "
+            "primeiro porto nos EUA, ainda sem tarifas. **CIF − FOB** (*Charges, Insurance and Freight*) "
+            "é só o custo de frete e seguro. A base escolhida vale para tabelas, gráficos, Excel e Preço médio; "
+            "o gráfico de Modal de Transporte só existe na base FOB."
         )
 
     _linhas_blocos = []
@@ -428,7 +446,7 @@ with st.expander("Fontes e base de valor"):
         "(país de origem e/ou via de entrada), em USD por unidade de medida do HTS "
         "(ex.: USD / quilogramas). Em qualquer soma (total, bloco, \"Outros\"), é a média "
         "ponderada: soma dos valores ÷ soma das quantidades -- não a média simples dos preços. "
-        "O valor segue a base descrita acima (sem frete nem seguro), então não é preço CIF. "
+        "O preço usa a base de valor escolhida (FOB, CIF ou CIF − FOB). "
         "Exige um único HTS (unidades diferentes não se misturam). A projeção do preço é o "
         "valor projetado ÷ a quantidade projetada.  \n"
         "**Blocos econômicos (visão agregada):** além de cada país individualmente, "
@@ -601,6 +619,30 @@ aggregate_commodities = False  # sempre desagregado -- ver "Totais por HTS" na t
 st.sidebar.markdown("**Métrica(s)**")
 metrica_valor = st.sidebar.checkbox("Valor (USD)", value=True, key="metrica_valor_checkbox")
 metrica_quantidade = st.sidebar.checkbox("Quantidade", value=False, key="metrica_quantidade_checkbox")
+
+# Base de valor: na importação, FOB (Customs Value), CIF ou CIF − FOB (frete e
+# seguro). Na exportação só existe FAS (valor no porto de embarque nos EUA,
+# comparável ao FOB).
+if eh_export:
+    st.sidebar.selectbox(
+        "Base de valor", ["FAS (≈ FOB)"], index=0, disabled=True,
+        key="base_valor_export",
+        help="Exportações só têm uma base de valor no DataWeb: FAS (Free Alongside Ship), "
+             "valor no porto de embarque nos EUA, comparável ao FOB. CIF só existe para importações.",
+    )
+    base_valor = "FAS (≈ FOB)"
+    base_curta = "FAS"
+else:
+    base_valor = st.sidebar.selectbox(
+        "Base de valor",
+        list(BASES_VALOR_IMPORT.keys()),
+        index=0,
+        key="base_valor_import",
+        help="FOB (Customs Value): preço na origem, sem frete, seguro nem tarifas. "
+             "CIF: Customs Value + frete e seguro (sem tarifas). "
+             "CIF − FOB: só o custo de frete e seguro.",
+    )
+    base_curta = BASES_VALOR_IMPORT[base_valor][1]
 
 periodo_tipo = st.sidebar.radio("Período", ["Anual", "Mensal"], horizontal=True)
 
@@ -870,7 +912,7 @@ if buscar:
 
     measures = []
     if metrica_valor:
-        measures.append("FAS_VALUE" if eh_export else "CONS_CUSTOMS_VALUE")
+        measures.append("FAS_VALUE" if eh_export else BASES_VALOR_IMPORT[base_valor][0])
     if metrica_quantidade:
         measures.append("FIRST_UNIT_QUANTITY" if eh_export else "CONS_FIR_UNIT_QUANT")
     if not measures:
@@ -1112,6 +1154,7 @@ if buscar:
     st.session_state["df_eua_paises_filtro"] = list(countries)
     st.session_state["df_eua_vias_filtro"] = list(districts)
     st.session_state["df_eua_fluxo"] = fluxo
+    st.session_state["df_eua_base_valor"] = (base_valor, base_curta)
     st.session_state["df_eua_tipo_export"] = tipo_export_label
     # Identifica a busca: entra na chave dos sliders/multiselects dos gráficos, para
     # que uma busca nova não herde o recorte de período/seleção da busca anterior
@@ -1165,6 +1208,15 @@ if "df_eua_multi" in st.session_state:
     # Terminologia e regras da exibição seguem o fluxo da última BUSCA (não o
     # seletor atual da barra lateral, que pode ter mudado sem nova busca).
     eh_export = st.session_state.get("df_eua_fluxo", fluxo) == "Exportação"
+    _base_sidebar = base_valor
+    base_valor, base_curta = st.session_state.get(
+        "df_eua_base_valor", ("FAS (≈ FOB)" if eh_export else "FOB (Customs Value)", "FAS" if eh_export else "FOB")
+    )
+    if (not eh_export) and _base_sidebar != base_valor:
+        st.info(
+            "A **Base de valor** selecionada na barra lateral mudou desde a última busca. "
+            "Clique em **Buscar dados** para atualizar os resultados."
+        )
     if eh_export != (fluxo == "Exportação"):
         st.info(
             "O fluxo selecionado na barra lateral mudou desde a última busca. "
@@ -1722,6 +1774,8 @@ if "df_eua_multi" in st.session_state:
     if not (tem_valor and tem_qtd):
         st.caption(tx("Para ver o **Preço médio** (valor ÷ quantidade), marque Valor e Quantidade na barra lateral e busque novamente."))
     eh_preco = metrica_grafico == "Preço médio"
+    if metrica_grafico in ("Valor (USD)", "Preço médio"):
+        st.caption(f"Base de valor: **{base_valor}**")
     mostrar_rotulos = st.toggle(
         "Rótulos de dados nos gráficos", value=True, key="rotulos_dados_toggle",
     )
@@ -1936,13 +1990,14 @@ if "df_eua_multi" in st.session_state:
             if not df_totais_tmp.empty:
                 df_totais_tmp.to_excel(writer, sheet_name=f"{nome_base} - Totais"[:31], index=False)
             df_exibicao_tmp.to_excel(writer, sheet_name=f"{nome_base} - Detalhe"[:31], index=False)
+        notas = [f"Base de valor: {base_valor}."]
         if (not monthly) and ytd_mes_por_medida and str(ano_atual) in periodos_sel_global:
-            notas = [
+            notas += [
                 f"{ano_atual} é o ano em andamento: inclui dados apenas até "
                 f"{mes}/{ano_atual} ({label_pt(lbl)})."
                 for lbl, mes in ytd_mes_por_medida.items()
             ]
-            pd.DataFrame({"Notas": notas}).to_excel(writer, sheet_name="Notas", index=False)
+        pd.DataFrame({"Notas": notas}).to_excel(writer, sheet_name="Notas", index=False)
     excel_bytes = buffer.getvalue()
 
     # Tabelas: só as colunas de período dentro do recorte do slicer.
@@ -2107,8 +2162,11 @@ if "df_eua_multi" in st.session_state:
         )
         if eh_preco:
             titulo_eixo_metrica = (
-                f"Preço médio (USD / {unidades_txt})" if unidades_txt else "Preço médio (USD / unidade)"
+                f"Preço médio {base_curta} (USD / {unidades_txt})" if unidades_txt
+                else f"Preço médio {base_curta} (USD / unidade)"
             )
+        elif metrica_grafico == "Valor (USD)":
+            titulo_eixo_metrica = f"Valor {base_curta} (USD)"
 
         def legenda_unidade_hts():
             """Mostra, embaixo do título de cada gráfico, qual HTS está
@@ -2981,6 +3039,11 @@ if "df_eua_multi" in st.session_state:
                 st.info(
                     "Modal de transporte só está disponível para **Valor (USD)** -- "
                     "a Census API não expõe quantidade quebrada por modal."
+                )
+            elif base_curta != "FOB":
+                st.info(
+                    "Modal de transporte só está disponível na base de valor **FOB (Customs Value)** -- "
+                    "a Census API usada aqui traz o valor aduaneiro, não o CIF."
                 )
             elif not CENSUS_API_KEY:
                 st.info(
