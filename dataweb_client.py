@@ -358,13 +358,33 @@ def district_names_to_codes(names: list[str]) -> list[str]:
 # 1. Construção dinâmica da query
 # --------------------------------------------------------------------------
 
+def import_hts_plan(hts_codes):
+    """
+    Importação (HTS): o DataWeb exige que a granularidade da consulta seja
+    igual ao tamanho do código (código de 6 dígitos com granularity "10" dá
+    erro). Usa o nível do código MAIS CURTO (par: 2, 4, 6, 8 ou 10) e reduz
+    os demais a esse nível, pois misturar tamanhos na mesma consulta não é
+    suportado. Retorna (codigos, granularidade).
+    """
+    if not hts_codes:
+        return [], "10"
+    n = min(min(len(c) for c in hts_codes), 10)
+    n = max(2, n - (n % 2))
+    vistos = []
+    for code in hts_codes:
+        curto = code[:n]
+        if curto not in vistos:
+            vistos.append(curto)
+    return vistos, str(n)
+
+
 def build_import_query(
     hts_codes: list[str],
     years: list[str],
     countries: Optional[list[str]] = None,
     aggregate_commodities: bool = False,
     aggregate_countries: bool = True,
-    granularity: str = "10",
+    granularity: Optional[str] = None,
     measures: Optional[list[str]] = None,
     monthly: bool = False,
     districts: Optional[list[str]] = None,
@@ -372,7 +392,8 @@ def build_import_query(
 ) -> dict:
     """
     Monta o payload JSON esperado pelo endpoint runReport para consultas
-    de Importação (Import For Consumption) por código HTS.
+    de Importação (Import For Consumption) por código HTS. Se `granularity`
+    não for informada, é deduzida do tamanho dos códigos (import_hts_plan).
 
     Parameters
     ----------
@@ -413,6 +434,9 @@ def build_import_query(
     district_codes = district_names_to_codes(districts)
 
     measures = measures or ["CONS_CUSTOMS_VALUE"]
+
+    if granularity is None:
+        hts_codes, granularity = import_hts_plan(hts_codes)
 
     query = {
         "savedQueryDatabaseId": None,
