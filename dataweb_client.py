@@ -539,9 +539,10 @@ def build_import_query(
 #   - "TotExp"  -> Total Exports (domésticas + reexportações)
 #   - medidas: "FAS_VALUE" (valor FAS, em dólares) e
 #              "FIRST_UNIT_QUANTITY" (quantidade na 1a unidade de medida)
-# Exportação usa a classificação Schedule B; não existe nível oficial de 8
-# ou 10 dígitos -- o máximo confiável é HTS-6 (os 6 primeiros dígitos
-# coincidem com o HS).
+# Exportação usa a numeração Schedule B: existem números de 6 dígitos (iguais
+# ao HTS de importação) e de 10 dígitos (Schedule B, NÃO harmonizados com o
+# HTS de importação); não existe nível de 8 dígitos. A consulta de 10 dígitos
+# foi confirmada no DataWeb (tradeType "Export", granularity "10").
 EXPORT_TRADE_TYPES = {
     "Doméstica": "Export",
     "Total": "TotExp",
@@ -550,17 +551,32 @@ EXPORT_MEASURES = ("FAS_VALUE", "FIRST_UNIT_QUANTITY")
 EXPORT_GRANULARITY = "6"
 
 
-def truncate_hts_for_export(hts_codes: list[str]) -> list[str]:
+def export_hts_plan(hts_codes: list[str]) -> tuple[list[str], str]:
     """
-    Reduz códigos HTS para no máximo 6 dígitos (nível oficial das
-    exportações), removendo duplicatas e preservando a ordem.
+    Normaliza os códigos para exportação e escolhe a granularidade:
+      - todos com 10 dígitos (ou mais) -> mantém 10 dígitos (Schedule B),
+        granularidade "10";
+      - qualquer outro caso -> reduz tudo a 6 dígitos (8 e 9 dígitos não
+        existem em exportação; misturar 6 e 10 dígitos na mesma consulta
+        faria o DataWeb abrir os códigos de 6 em vários de 10),
+        granularidade "6".
+    Remove duplicatas preservando a ordem. Devolve (códigos, granularidade).
     """
+    if hts_codes and all(len(c) >= 10 for c in hts_codes):
+        n, gran = 10, "10"
+    else:
+        n, gran = 6, EXPORT_GRANULARITY
     vistos: list[str] = []
     for code in hts_codes:
-        curto = code[: int(EXPORT_GRANULARITY)]
+        curto = code[:n]
         if curto not in vistos:
             vistos.append(curto)
-    return vistos
+    return vistos, gran
+
+
+def truncate_hts_for_export(hts_codes: list[str]) -> list[str]:
+    """Compatibilidade: devolve só os códigos normalizados de export_hts_plan."""
+    return export_hts_plan(hts_codes)[0]
 
 
 def build_export_query(
@@ -577,7 +593,7 @@ def build_export_query(
 ) -> dict:
     """
     Monta o payload do runReport para consultas de EXPORTAÇÃO por código
-    HTS (até 6 dígitos).
+    HTS (6 dígitos, ou 10 dígitos Schedule B quando todos os códigos têm 10).
 
     Reaproveita build_import_query (mesma estrutura de anos, países,
     distritos e agregações) e só sobrescreve o que muda na exportação.
@@ -598,8 +614,8 @@ def build_export_query(
             f"(use 'Export' ou 'TotExp')."
         )
 
-    # Garante HTS-6 (8/10 dígitos não existem em exportação).
-    hts_codes = truncate_hts_for_export(hts_codes)
+    # 10 dígitos (Schedule B) quando todos os códigos têm 10; senão, 6.
+    hts_codes, granularidade_export = export_hts_plan(hts_codes)
 
     query = build_import_query(
         hts_codes=hts_codes,
@@ -607,7 +623,7 @@ def build_export_query(
         countries=countries,
         aggregate_commodities=aggregate_commodities,
         aggregate_countries=aggregate_countries,
-        granularity=EXPORT_GRANULARITY,
+        granularity=granularidade_export,
         measures=measures or [EXPORT_MEASURES[0]],
         monthly=monthly,
         districts=districts,
