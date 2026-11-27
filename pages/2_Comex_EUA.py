@@ -424,6 +424,13 @@ with st.expander("Fontes e base de valor"):
                 _vistos.append(_p)
         _linhas_blocos.append(f"- **{_b}**: " + ", ".join(sorted(_vistos)))
     st.markdown(tx(
+        "**Preço médio:** é o valor (USD) dividido pela quantidade, no mesmo período e local "
+        "(país de origem e/ou via de entrada), em USD por unidade de medida do HTS "
+        "(ex.: USD / quilogramas). Em qualquer soma (total, bloco, \"Outros\"), é a média "
+        "ponderada: soma dos valores ÷ soma das quantidades -- não a média simples dos preços. "
+        "O valor segue a base descrita acima (sem frete nem seguro), então não é preço CIF. "
+        "Exige um único HTS (unidades diferentes não se misturam). A projeção do preço é o "
+        "valor projetado ÷ a quantidade projetada.  \n"
         "**Blocos econômicos (visão agregada):** além de cada país individualmente, "
         "é possível ver a soma dos países de um bloco. **Os países que compõem os blocos "
         "continuam representados de forma individual** em todos os filtros e gráficos; "
@@ -1704,7 +1711,7 @@ if "df_eua_multi" in st.session_state:
     with st.container(key="metrica_abas"):
         if tem_valor and tem_qtd:
             metrica_grafico = st.radio(
-                "Métrica (tabelas e gráficos)", ["Valor (USD)", "Quantidade"],
+                "Métrica (tabelas e gráficos)", ["Valor (USD)", "Quantidade", "Preço médio"],
                 horizontal=True, key="metrica_grafico_toggle",
                 label_visibility="collapsed",
             )
@@ -1712,6 +1719,9 @@ if "df_eua_multi" in st.session_state:
             metrica_grafico = "Valor (USD)"
         else:
             metrica_grafico = "Quantidade"
+    if not (tem_valor and tem_qtd):
+        st.caption(tx("Para ver o **Preço médio** (valor ÷ quantidade), marque Valor e Quantidade na barra lateral e busque novamente."))
+    eh_preco = metrica_grafico == "Preço médio"
     mostrar_rotulos = st.toggle(
         "Rótulos de dados nos gráficos", value=True, key="rotulos_dados_toggle",
     )
@@ -1734,10 +1744,18 @@ if "df_eua_multi" in st.session_state:
         fig.update_yaxes(showgrid=False)
         fig.update_layout(separators=",.")
 
+        if eh_preco:  # preço: hover com 2 casas decimais
+            for _t in fig.data:
+                _ht = getattr(_t, "hovertemplate", None)
+                if _ht and _t.meta != "hover_proprio":
+                    _t.hovertemplate = _ht.replace(":,.0f}", ":,.2f}")
+
         def _fmt(v):
             try:
                 if v is None or v != v or float(v) == 0:
                     return ""  # sem rótulo para valor zero (ou ausente)
+                if eh_preco:
+                    return f"{float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 return f"{float(v):,.0f}".replace(",", ".")
             except (TypeError, ValueError):
                 return ""
@@ -1822,6 +1840,7 @@ if "df_eua_multi" in st.session_state:
                 )
         return fig
 
+    # Preço médio usa a quantidade como base (ranking, unidade, HTS) e busca o valor à parte.
     chave_medida = "Customs Value" if metrica_grafico == "Valor (USD)" else "First Unit of Quantity"
 
     # No Anual, o ano em andamento é rotulado com o último mês que tem dado.
@@ -1866,9 +1885,49 @@ if "df_eua_multi" in st.session_state:
     # período do slicer do topo. Sempre em Excel,
     # nunca mais CSV -- com 1 medida selecionada, tem 2 abas; com as 2
     # medidas, tem 4 abas.
+    def combinar_preco(dv, dq):
+        """Junta as tabelas de Valor e Quantidade (mesmas linhas) e calcula o
+        Preço médio = Valor ÷ Quantidade. Ordem: ..., Valor, Volume, Unidade
+        de Medida, Preço médio e Tipo."""
+        if dv is None or dq is None or dv.empty or dq.empty:
+            return pd.DataFrame()
+        extras = [c for c in ("Volume", "Unidade de Medida") if c in dq.columns]
+        chaves = [c for c in dv.columns if c != "Valor (USD)" and c in dq.columns and c not in extras]
+        m = dv.merge(dq[chaves + extras], on=chaves, how="inner")
+        m["Preço médio (USD/un.)"] = (
+            m["Valor (USD)"] / m["Volume"].where(m["Volume"] > 0)
+        ).round(2)
+        base = [c for c in dv.columns if c not in ("Valor (USD)", "Tipo")]
+        final = base + ["Valor (USD)"] + extras + ["Preço médio (USD/un.)"]
+        if "Tipo" in m.columns:
+            final.append("Tipo")
+        return m[final].sort_values("Data").reset_index(drop=True)
+
+    def tabelas_preco():
+        _dv = recortar_df_periodo(dfs_por_medida["Customs Value"])
+        _dq = recortar_df_periodo(dfs_por_medida["First Unit of Quantity"])
+        det = combinar_preco(
+            preparar_df_exibicao(_dv, "Customs Value")[0],
+            preparar_df_exibicao(_dq, "First Unit of Quantity")[0],
+        )
+        tot = combinar_preco(
+            preparar_df_totais(_dv, "Customs Value"),
+            preparar_df_totais(_dq, "First Unit of Quantity"),
+        )
+        return tot, det
+
     import io
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        if tem_valor and tem_qtd:
+            try:
+                _tp, _dp_ = tabelas_preco()
+                if not _tp.empty:
+                    _tp.to_excel(writer, sheet_name="Preço médio - Totais", index=False)
+                if not _dp_.empty:
+                    _dp_.to_excel(writer, sheet_name="Preço médio - Detalhe", index=False)
+            except Exception:
+                pass
         for label, df in dfs_por_medida.items():
             df = recortar_df_periodo(df)  # mesmo recorte do slicer do topo
             df_exibicao_tmp, _ = preparar_df_exibicao(df, label)
@@ -1890,11 +1949,32 @@ if "df_eua_multi" in st.session_state:
     label, df = chave_medida, recortar_df_periodo(dfs_por_medida[chave_medida])
     df_exibicao, periodo_cols = preparar_df_exibicao(df, label)
     df_totais = preparar_df_totais(df, label)
-    renderizar_medida(
-        df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
-        df_exibicao=df_exibicao, periodo_cols=periodo_cols,
-        df_totais=df_totais, excel_buffer=excel_bytes,
-    )
+    if eh_preco:
+        _tab_tot, _tab_det = tabelas_preco()
+        _cfg = {
+            "Valor (USD)": st.column_config.NumberColumn(format="localized"),
+            "Volume": st.column_config.NumberColumn(format="localized"),
+            "Preço médio (USD/un.)": st.column_config.NumberColumn(format="localized"),
+            "Data": st.column_config.DateColumn(format="YYYY-MM-DD" if monthly else "YYYY"),
+        }
+        st.caption(tx("Preço médio = Valor (USD) ÷ Volume (quantidade), linha a linha. Em Totais e agregações, é a média ponderada (soma do valor ÷ soma da quantidade)."))
+        if not _tab_tot.empty:
+            st.markdown("**Totais por HTS**")
+            st.dataframe(_tab_tot, use_container_width=True, column_config=_cfg)
+        st.markdown(tx("**Detalhe (por HTS, País de Origem e Via de Entrada)**"))
+        st.success(f"{len(_tab_det)} linha(s) retornada(s).")
+        st.dataframe(_tab_det, use_container_width=True, column_config=_cfg)
+        st.download_button(
+            "⬇️ Baixar Excel (inclui Preço médio)", excel_bytes, "comex_eua_dados.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="preco_excel_download",
+        )
+    else:
+        renderizar_medida(
+            df, label, tab_key=re.sub(r"\W+", "_", label.lower()),
+            df_exibicao=df_exibicao, periodo_cols=periodo_cols,
+            df_totais=df_totais, excel_buffer=excel_bytes,
+        )
 
     # ----------------------------------------------------------------
     # Gráficos -- um por via de entrada (default: top 5), com slicer de
@@ -1995,6 +2075,16 @@ if "df_eua_multi" in st.session_state:
             hts_escolhido = None
             df_fonte_grafico = df_fonte
 
+        # Preço médio: valor do mesmo HTS (a quantidade é o df_fonte_grafico).
+        df_v_g = None
+        if eh_preco:
+            _dvall = dfs_por_medida.get("Customs Value")
+            if _dvall is not None:
+                df_v_g = (
+                    _dvall[_dvall[hts_col] == hts_escolhido]
+                    if (hts_escolhido is not None and hts_col) else _dvall
+                )
+
         # combo_id identifica a combinação atual (métrica + HTS escolhido)
         # -- definido aqui, ANTES de qualquer "if via_col:"/"if country_col:",
         # para nunca dar erro quando um dos dois não existir nos dados.
@@ -2004,7 +2094,7 @@ if "df_eua_multi" in st.session_state:
         # Unidade de medida do HTS exibido (só em Quantidade) -- usada na
         # legenda sob o título e no título do eixo dos gráficos maiores.
         unidades_txt = ""
-        if metrica_grafico == "Quantidade" and "Quantity Description" in df_fonte_grafico.columns:
+        if metrica_grafico in ("Quantidade", "Preço médio") and "Quantity Description" in df_fonte_grafico.columns:
             _un = (
                 df_fonte_grafico["Quantity Description"]
                 .dropna().astype(str)
@@ -2015,6 +2105,10 @@ if "df_eua_multi" in st.session_state:
         titulo_eixo_metrica = (
             f"Quantidade ({unidades_txt})" if unidades_txt else metrica_grafico
         )
+        if eh_preco:
+            titulo_eixo_metrica = (
+                f"Preço médio (USD / {unidades_txt})" if unidades_txt else "Preço médio (USD / unidade)"
+            )
 
         def legenda_unidade_hts():
             """Mostra, embaixo do título de cada gráfico, qual HTS está
@@ -2027,7 +2121,7 @@ if "df_eua_multi" in st.session_state:
                 _h = hts_presentes[0]  # um único HTS na consulta
             if _h is not None:
                 linhas.append(f"HTS exibido: {_linha_hts(_h)}")
-            if metrica_grafico == "Quantidade" and "Quantity Description" in df_fonte_grafico.columns:
+            if metrica_grafico in ("Quantidade", "Preço médio") and "Quantity Description" in df_fonte_grafico.columns:
                 unidades = (
                     df_fonte_grafico["Quantity Description"]
                     .dropna().astype(str)
@@ -2220,6 +2314,117 @@ if "df_eua_multi" in st.session_state:
             def cor_pais(nome):
                 return COR_OUTROS if nome == "Outros" else _cor_pais_map.get(nome, COR_OUTROS)
 
+            # ---- Helpers de projeção e de PREÇO MÉDIO (valor ÷ quantidade) ----
+            arred = (lambda v: round(v, 2)) if eh_preco else round
+
+            def fmt_br2(v):
+                return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+            def preco_grupo(by_col, cols):
+                """Preço médio por grupo: soma do valor ÷ soma da quantidade
+                (média ponderada, não média dos preços)."""
+                v = df_v_g.groupby(by_col)[cols].sum(min_count=1)
+                q = df_fonte_grafico.groupby(by_col)[cols].sum(min_count=1)
+                return v.reindex(q.index) / q.where(q > 0)
+
+            def preco_total(cols):
+                v = df_v_g[cols].sum(min_count=1)
+                q = df_fonte_grafico[cols].sum(min_count=1)
+                return v / q.where(q > 0)
+
+            def preco_bloco(bloco, col_pais, cols):
+                mv = df_v_g[col_pais].map(lambda n: pertence_bloco(n, bloco))
+                mq = df_fonte_grafico[col_pais].map(lambda n: pertence_bloco(n, bloco))
+                v = df_v_g[mv][cols].sum(min_count=1)
+                q = df_fonte_grafico[mq][cols].sum(min_count=1)
+                return v / q.where(q > 0)
+
+            def aviso_sem_projecao(nomes):
+                if nomes:
+                    st.caption(
+                        "⚠️ Sem projeção para: **" + "**, **".join(str(n) for n in nomes) +
+                        "** -- histórico com muitos meses sem comércio (padrão "
+                        "intermitente/esporádico), onde este modelo de projeção "
+                        "não é confiável."
+                    )
+
+            _intermitentes_v = []
+
+            def calcular_projecoes(coluna_grupo, nomes=None, blocos=None):
+                """Devolve {nome: Series projetada} (6 meses). coluna_grupo=None
+                -> total. Em Preço médio, projeta valor e quantidade
+                separadamente e divide um pelo outro."""
+                try:
+                    medidas = (
+                        ["Customs Value", "First Unit of Quantity"] if eh_preco else [chave_medida]
+                    )
+                    resultados, ignorados = {}, set()
+                    for med in medidas:
+                        df_full = dfs_por_medida_full.get(med)
+                        if df_full is None:
+                            return {}
+                        if hts_escolhido is not None and hts_col:
+                            df_full = df_full[df_full[hts_col] == hts_escolhido]
+                        cols_full = periodo_cols_de(df_full)
+                        if len(cols_full) < 6:
+                            return {}
+                        cols_prev = cols_full[-60:] if len(cols_full) > 60 else cols_full
+                        if coluna_grupo is None:
+                            grupos = {"Total": df_full[cols_prev].sum(min_count=1)}
+                        else:
+                            agr_full = df_full.groupby(coluna_grupo)[cols_prev].sum(min_count=1)
+                            grupos = {n: agr_full.loc[n] for n in (nomes or []) if n in agr_full.index}
+                            for _b in (blocos or []):
+                                _m = df_full[coluna_grupo].map(lambda n, b=_b: pertence_bloco(n, b))
+                                grupos[_b] = df_full[_m][cols_prev].sum(min_count=1)
+                        for nome, serie in grupos.items():
+                            _vj = [serie.get(c, 0) for c in cols_prev]
+                            if _proporcao_meses_zerados(_vj) >= LIMIAR_INTERMITENCIA:
+                                ignorados.add(nome)
+                        resultados[med] = (grupos, cols_prev)
+                    for n in ignorados:
+                        if n not in _intermitentes_v:
+                            _intermitentes_v.append(n)
+                    previsoes = {}
+                    for med, (grupos, cols_prev) in resultados.items():
+                        df_wide = pd.DataFrame({"data": [periodo_label_para_data(c) for c in cols_prev]})
+                        for nome, serie in grupos.items():
+                            if nome in ignorados:
+                                continue
+                            df_wide[nome] = [serie.get(c, 0) for c in cols_prev]
+                        if len(df_wide.columns) <= 1:
+                            return {}
+                        fdf = _forecast_cached(df_wide.to_json(orient="split", date_format="iso"), h=6)
+                        previsoes[med] = {
+                            n: fdf[n].dropna() for n in fdf.columns
+                            if n in grupos and not fdf[n].dropna().empty
+                        }
+                    if not eh_preco:
+                        return previsoes[chave_medida]
+                    out = {}
+                    for n, sv in previsoes["Customs Value"].items():
+                        sq = previsoes["First Unit of Quantity"].get(n)
+                        if sq is None:
+                            continue
+                        r = (sv / sq.where(sq > 0)).dropna()
+                        if len(r):
+                            out[n] = r
+                    return out
+                except Exception:
+                    return {}
+
+            def legenda_real_proj():
+                st.markdown(
+                    "<div style='display:flex; gap:24px; align-items:center; "
+                    "margin:4px 0 12px 0; font-size:0.9rem; color:#31333F;'>"
+                    f"<span><span style='display:inline-block; width:12px; height:12px; "
+                    f"background:{COR_REALIZADO}; border-radius:2px; margin-right:6px;'></span>Realizado</span>"
+                    f"<span><span style='display:inline-block; width:12px; height:12px; "
+                    f"background:{COR_PROJETADO}; border-radius:2px; margin-right:6px;'></span>Projetado</span>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
             opcoes_visao = ["Total"]
             if via_col:
                 opcoes_visao.append("Por via")
@@ -2275,7 +2480,12 @@ if "df_eua_multi" in st.session_state:
                     nota_ano_em_andamento(periodo_visivel)
 
                     forecast_por_via = {}
-                    if mostrar_projecao:
+                    _pv = preco_grupo(via_col, periodo_visivel) if eh_preco else None
+                    if mostrar_projecao and eh_preco:
+                        _intermitentes_v.clear()
+                        forecast_por_via = calcular_projecoes(via_col, list(vias_selecionadas))
+                        aviso_sem_projecao(list(_intermitentes_v))
+                    elif mostrar_projecao:
                         try:
                             # Usa a versão COMPLETA (com o "colchão" de anos
                             # extras buscado na consulta) para montar a
@@ -2382,7 +2592,7 @@ if "df_eua_multi" in st.session_state:
                         tem_projecao_check = (
                             via in forecast_por_via
                             and len(forecast_por_via[via]) > 0
-                            and forecast_por_via[via].abs().max() > 1
+                            and forecast_por_via[via].abs().max() > (0 if eh_preco else 1)
                         )
                         if tem_dado_real or (monthly and tem_projecao_check):
                             vias_com_conteudo.append(via)
@@ -2400,6 +2610,8 @@ if "df_eua_multi" in st.session_state:
                             with cols[j]:
                                 row = df_via[df_via[via_col] == via].iloc[0]
                                 valores = [row[c] for c in periodo_visivel]
+                                if eh_preco and via in _pv.index:
+                                    valores = _pv.loc[via].tolist()
 
                                 fig = go.Figure()
                                 fig.add_trace(
@@ -2413,7 +2625,7 @@ if "df_eua_multi" in st.session_state:
                                     serie_proj = forecast_por_via.get(via)
                                     if serie_proj is not None and len(serie_proj) > 0:
                                         periodos_proj = [data_para_periodo_label(d) for d in serie_proj.index]
-                                        valores_proj = [round(v) for v in serie_proj.tolist()]
+                                        valores_proj = [arred(v) for v in serie_proj.tolist()]
                                         fig.add_trace(
                                             go.Bar(
                                                 x=periodos_proj, y=valores_proj,
@@ -2446,70 +2658,10 @@ if "df_eua_multi" in st.session_state:
                     "de anos ou os países/HTS selecionados.")
                 )
 
-            # Visões "Total" e "Por país" da evolução no tempo
-            # Projeção (modo Mensal) para as visões "Total" e "Por país de origem":
-            # mesma regra e mesmo modelo da visão "Por via".
-            def aviso_sem_projecao(nomes):
-                if nomes:
-                    st.caption(
-                        "⚠️ Sem projeção para: **" + "**, **".join(str(n) for n in nomes) +
-                        "** -- histórico com muitos meses sem comércio (padrão "
-                        "intermitente/esporádico), onde este modelo de projeção "
-                        "não é confiável."
-                    )
-
-            _intermitentes_v = []
-
-            def calcular_projecoes(coluna_grupo, nomes=None, blocos=None):
-                """Devolve {nome: Series projetada}. coluna_grupo=None -> total."""
-                try:
-                    df_full = dfs_por_medida_full.get(chave_medida)
-                    if df_full is None:
-                        return {}
-                    if hts_escolhido is not None and hts_col:
-                        df_full = df_full[df_full[hts_col] == hts_escolhido]
-                    cols_full = periodo_cols_de(df_full)
-                    cols_prev = cols_full[-60:] if len(cols_full) > 60 else cols_full
-                    if len(cols_full) < 6:
-                        return {}
-                    if coluna_grupo is None:
-                        grupos = {"Total": df_full[cols_prev].sum(min_count=1)}
-                    else:
-                        agr_full = df_full.groupby(coluna_grupo)[cols_prev].sum(min_count=1)
-                        grupos = {n: agr_full.loc[n] for n in (nomes or []) if n in agr_full.index}
-                        for _b in (blocos or []):
-                            _m = df_full[coluna_grupo].map(lambda n, b=_b: pertence_bloco(n, b))
-                            grupos[_b] = df_full[_m][cols_prev].sum(min_count=1)
-                    df_wide = pd.DataFrame({"data": [periodo_label_para_data(c) for c in cols_prev]})
-                    for nome, serie in grupos.items():
-                        valores_j = [serie.get(c, 0) for c in cols_prev]
-                        if _proporcao_meses_zerados(valores_j) >= LIMIAR_INTERMITENCIA:
-                            _intermitentes_v.append(nome)
-                            continue
-                        df_wide[nome] = valores_j
-                    if len(df_wide.columns) <= 1:
-                        return {}
-                    fdf = _forecast_cached(df_wide.to_json(orient="split", date_format="iso"), h=6)
-                    return {n: fdf[n].dropna() for n in fdf.columns if n in grupos and not fdf[n].dropna().empty}
-                except Exception:
-                    return {}
-
-            def legenda_real_proj():
-                st.markdown(
-                    "<div style='display:flex; gap:24px; align-items:center; "
-                    "margin:4px 0 12px 0; font-size:0.9rem; color:#31333F;'>"
-                    f"<span><span style='display:inline-block; width:12px; height:12px; "
-                    f"background:{COR_REALIZADO}; border-radius:2px; margin-right:6px;'></span>Realizado</span>"
-                    f"<span><span style='display:inline-block; width:12px; height:12px; "
-                    f"background:{COR_PROJETADO}; border-radius:2px; margin-right:6px;'></span>Projetado</span>"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
-
             if visao_evolucao == "Total":
                 periodo_v = recortar_periodo(periodo_cols)
                 nota_ano_em_andamento(periodo_v)
-                tot = df_fonte_grafico[periodo_v].sum(min_count=1)
+                tot = preco_total(periodo_v) if eh_preco else df_fonte_grafico[periodo_v].sum(min_count=1)
                 figv = go.Figure(go.Bar(
                     x=[rotulo_periodo(p) for p in periodo_v], y=tot.tolist(), name="Realizado",
                     marker_color=COR_REALIZADO,
@@ -2523,7 +2675,7 @@ if "df_eua_multi" in st.session_state:
                     legenda_real_proj()
                     figv.add_trace(go.Bar(
                         x=[data_para_periodo_label(d) for d in _proj.index],
-                        y=[round(v) for v in _proj.tolist()], name="Projetado",
+                        y=[arred(v) for v in _proj.tolist()], name="Projetado",
                         marker_color=COR_PROJETADO,
                         hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                     ))
@@ -2546,9 +2698,15 @@ if "df_eua_multi" in st.session_state:
                 paises_plot = [c for c in paises_global if c in agr.index]
                 paises_plot.sort(key=lambda c: -agr.loc[c].fillna(0).sum())
                 series_plot = {c: agr.loc[c] for c in paises_plot}
+                if eh_preco:
+                    _agr_p = preco_grupo(country_col, periodo_v)
+                    series_plot = {c: _agr_p.loc[c] for c in paises_plot}
                 for _b in blocos_global:
-                    _m = df_fonte_grafico[country_col].map(lambda n, b=_b: pertence_bloco(n, b))
-                    series_plot[_b] = df_fonte_grafico[_m][periodo_v].sum(min_count=1)
+                    if eh_preco:
+                        series_plot[_b] = preco_bloco(_b, country_col, periodo_v)
+                    else:
+                        _m = df_fonte_grafico[country_col].map(lambda n, b=_b: pertence_bloco(n, b))
+                        series_plot[_b] = df_fonte_grafico[_m][periodo_v].sum(min_count=1)
                 itens_plot = paises_plot + list(blocos_global)
                 x_rot = [rotulo_periodo(p) for p in periodo_v]
                 _proj_ok = bool(monthly and periodo_v and periodo_v[-1] == periodo_cols[-1])
@@ -2571,7 +2729,7 @@ if "df_eua_multi" in st.session_state:
                             if _sp is not None and len(_sp) > 0:
                                 figp.add_trace(go.Bar(
                                     x=[data_para_periodo_label(d) for d in _sp.index],
-                                    y=[round(v) for v in _sp.tolist()], name="Projetado",
+                                    y=[arred(v) for v in _sp.tolist()], name="Projetado",
                                     marker_color=COR_PROJETADO,
                                     hovertemplate="%{x}<br>%{y:,.0f}<extra></extra>",
                                 ))
@@ -2594,7 +2752,7 @@ if "df_eua_multi" in st.session_state:
             st.markdown(
                 tx(f"""
                 <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                    Composição por País de Origem em cada Via de Entrada ({metrica_grafico}, Realizado): % do total da via e valor
+                    {'Preço médio por País de Origem em cada Via de Entrada (Realizado): top 5 países por quantidade + Outros' if eh_preco else f'Composição por País de Origem em cada Via de Entrada ({metrica_grafico}, Realizado): % do total da via e valor'}
                 </h2>
                 """),
                 unsafe_allow_html=True,
@@ -2608,9 +2766,12 @@ if "df_eua_multi" in st.session_state:
                 )
                 if ver_bloco4:
                     st.caption(tx(
-                        "Blocos se sobrepõem (ex.: Canadá e México estão no USMCA e na APEC), "
-                        "então os percentuais podem somar mais de 100%. \"Demais países\" = fora de todos os blocos."
+                        "Blocos se sobrepõem (ex.: Canadá e México estão no USMCA e na APEC)"
+                        + ("" if eh_preco else ", então os percentuais podem somar mais de 100%")
+                        + ". \"Demais países\" = fora de todos os blocos."
                     ))
+                if eh_preco:
+                    st.caption(tx("Preço médio = valor ÷ quantidade (média ponderada) no período selecionado; países ordenados do maior para o menor volume em quantidade."))
                 periodo_visivel4 = recortar_periodo(periodo_cols)
 
                 nota_ano_em_andamento(periodo_visivel4)
@@ -2638,6 +2799,72 @@ if "df_eua_multi" in st.session_state:
 
                                 if not total_via or total_via <= 0:
                                     st.info(tx("Sem dados nessa via de entrada no período selecionado."))
+                                    continue
+
+                                if eh_preco:
+                                    _dq_via = df_fonte_grafico[df_fonte_grafico[via_col] == via]
+                                    _dv_via = df_v_g[df_v_g[via_col] == via]
+
+                                    def _soma(df_, mask=None):
+                                        d_ = df_ if mask is None else df_[mask]
+                                        return float(d_[periodo_visivel4].sum(axis=1, skipna=True).sum())
+
+                                    itens_p = []  # (nome, quantidade, valor, cor)
+                                    if ver_bloco4:
+                                        _usados = set()
+                                        for _b in BLOCOS_ECONOMICOS:
+                                            mq = _dq_via[country_col].map(lambda n, b=_b: pertence_bloco(n, b))
+                                            mv = _dv_via[country_col].map(lambda n, b=_b: pertence_bloco(n, b))
+                                            itens_p.append((_b, _soma(_dq_via, mq), _soma(_dv_via, mv), cor_bloco(_b)))
+                                        _fora = lambda n: not any(pertence_bloco(n, b) for b in BLOCOS_ECONOMICOS)
+                                        itens_p.append((
+                                            "Demais países",
+                                            _soma(_dq_via, _dq_via[country_col].map(_fora)),
+                                            _soma(_dv_via, _dv_via[country_col].map(_fora)),
+                                            COR_OUTROS,
+                                        ))
+                                        itens_p = sorted([i_ for i_ in itens_p if i_[1] > 0], key=lambda i_: -i_[1])
+                                    else:
+                                        _qp = _dq_via.groupby(country_col)[periodo_visivel4].sum(min_count=1).sum(axis=1, skipna=True)
+                                        _vp = _dv_via.groupby(country_col)[periodo_visivel4].sum(min_count=1).sum(axis=1, skipna=True)
+                                        _qp = _qp.sort_values(ascending=False)
+                                        for _c in _qp.index[:5]:
+                                            itens_p.append((pais_pt(_c), float(_qp[_c]), float(_vp.get(_c, 0)), cor_pais(_c)))
+                                        _resto = _qp.index[5:]
+                                        if len(_resto):
+                                            itens_p.append((
+                                                "Outros", float(_qp[_resto].sum()),
+                                                float(_vp.reindex(_resto).fillna(0).sum()), COR_OUTROS,
+                                            ))
+                                    itens_p = [i_ for i_ in itens_p if i_[1] > 0]
+                                    if not itens_p:
+                                        st.info(tx("Sem quantidade nessa via de entrada no período selecionado."))
+                                        continue
+                                    nomes_p = [i_[0] for i_ in itens_p][::-1]
+                                    precos_p = [i_[2] / i_[1] for i_ in itens_p][::-1]
+                                    qtds_p = [i_[1] for i_ in itens_p][::-1]
+                                    cores_p = [i_[3] for i_ in itens_p][::-1]
+                                    figp4 = go.Figure(go.Bar(
+                                        x=precos_p, y=nomes_p, orientation="h", marker_color=cores_p,
+                                        text=[fmt_br2(v) for v in precos_p],
+                                        textposition="outside", cliponaxis=False,
+                                        customdata=qtds_p, meta="hover_proprio",
+                                        hovertemplate="%{y}<br>Preço médio: %{x:,.2f}<br>Quantidade: %{customdata:,.0f}<extra></extra>",
+                                    ))
+                                    figp4.update_layout(
+                                        xaxis_title=titulo_eixo_metrica,
+                                        xaxis=dict(range=[0, max(precos_p) * 1.25]),
+                                        yaxis=dict(categoryorder="array", categoryarray=nomes_p),
+                                        plot_bgcolor="#DBF7FF", paper_bgcolor="white",
+                                        height=350, showlegend=False,
+                                        margin=dict(t=30, b=40, l=120, r=80),
+                                    )
+                                    figp4.update_xaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                    figp4.update_yaxes(showline=True, linewidth=2, linecolor="#042373", mirror=True)
+                                    st.plotly_chart(
+                                        aplicar_rotulos_dados(figp4), use_container_width=True,
+                                        key="grafico4p_" + re.sub(r"\W+", "_", str(via).lower()) + f"_{combo_id}",
+                                    )
                                     continue
 
                                 if ver_bloco4:
@@ -2750,7 +2977,7 @@ if "df_eua_multi" in st.session_state:
                     "O gráfico de Modal de Transporte (Census API) ainda não está "
                     "disponível para **Exportações**."
                 )
-            elif metrica_grafico == "Quantidade":
+            elif metrica_grafico in ("Quantidade", "Preço médio"):
                 st.info(
                     "Modal de transporte só está disponível para **Valor (USD)** -- "
                     "a Census API não expõe quantidade quebrada por modal."
@@ -3003,7 +3230,7 @@ if "df_eua_multi" in st.session_state:
             st.markdown(
                 f"""
                 <h2 style='text-align:center; color:#042373; font-family:Arial; font-weight:bold;'>
-                    Volume total transacionado em {metrica_grafico} (Realizado) por País de Origem
+                    {'Volume total transacionado por País de Origem' if eh_preco else f'Volume total transacionado em {metrica_grafico} (Realizado) por País de Origem'}
                 </h2>
                 <p style='text-align:center; font-size:0.85rem; color:#666; margin:0;'>
                     Pareto 80-20: países que somam 80% do total + "Outros" (linha = % acumulado)
@@ -3013,7 +3240,9 @@ if "df_eua_multi" in st.session_state:
             )
             legenda_unidade_hts()
 
-            if country_col:
+            if eh_preco:
+                st.info(tx("Este gráfico não está disponível na métrica **Preço médio**. Escolha Valor ou Quantidade."))
+            elif country_col:
                 ver_bloco5 = st.toggle(
                     tx("Ver por bloco econômico (soma dos países de cada bloco)"),
                     key=f"toggle_bloco5_{combo_id}",
