@@ -18,6 +18,7 @@ from dataweb_client import (
     build_import_query,
     build_export_query,
     truncate_hts_for_export,
+    export_hts_plan,
     EXPORT_TRADE_TYPES,
     run_report,
     parse_report,
@@ -412,8 +413,9 @@ with st.expander("Fontes e base de valor"):
             f"Consulta de **Exportações {'domésticas' if tipo_export == 'Export' else 'totais'}** "
             + ("(*Domestic Exports*: bens produzidos nos EUA)" if tipo_export == "Export"
                else "(*Total Exports*: domésticas + reexportações)")
-            + ", por código HTS de até **6 dígitos** (exportações não têm nível oficial de 8 ou 10 dígitos; "
-            "códigos maiores são reduzidos automaticamente aos 6 primeiros).  \n"
+            + ", por código de **6 dígitos** (igual ao HTS) ou de **10 dígitos** (numeração Schedule B, que não é a "
+            "mesma do HTS de importação). Não existe nível de 8 dígitos em exportação: códigos de 8 dígitos, "
+            "ou misturas de 6 e 10 dígitos, são reduzidos aos 6 primeiros.  \n"
             "**Base de valor:** em exportação só existe **FAS** (*FAS Value*, *Free Alongside Ship*): "
             "valor da mercadoria no porto de embarque nos EUA, sem frete nem seguro internacionais "
             "(comparável ao FOB). CIF só existe para importações.  \n"
@@ -605,13 +607,21 @@ hts_input = st.sidebar.text_area(
 _raw_lines = [c.strip() for c in hts_input.splitlines() if c.strip()]
 hts_codes = [re.sub(r"[^0-9]", "", line) for line in _raw_lines]
 hts_codes = [c for c in hts_codes if c]
+_gran_export = "6"
 if eh_export:
     _hts_originais = list(hts_codes)
-    hts_codes = truncate_hts_for_export(hts_codes)
-    if hts_codes != _hts_originais:
+    hts_codes, _gran_export = export_hts_plan(hts_codes)
+    if _gran_export == "10":
         st.sidebar.caption(
-            "ℹ️ Exportações só têm detalhamento oficial até **6 dígitos**: "
-            "HTS maiores foram reduzidos aos 6 primeiros (" + ", ".join(hts_codes) + ")."
+            "ℹ️ Exportação com **10 dígitos** usa a numeração **Schedule B** (não é a mesma do HTS de "
+            "importação, só os 6 primeiros dígitos coincidem). Se não vier nenhum dado, o número pode não "
+            "existir na Schedule B: tente os 6 primeiros dígitos."
+        )
+    elif hts_codes != _hts_originais:
+        st.sidebar.caption(
+            "ℹ️ Em exportação só existem códigos de **6 dígitos** (iguais ao HTS) ou de **10 dígitos** "
+            "(Schedule B, quando todos os códigos informados têm 10). Os códigos informados foram "
+            "reduzidos a 6 dígitos (" + ", ".join(hts_codes) + ")."
         )
 
 aggregate_commodities = False  # sempre desagregado -- ver "Totais por HTS" na tabela
@@ -920,6 +930,14 @@ if buscar:
         st.stop()
 
     monthly = periodo_tipo == "Mensal"
+    # Em exportação com 10 dígitos o número precisa existir na Schedule B; o
+    # DataWeb rejeita (ou devolve vazio) um HTS de importação que não exista lá.
+    _DICA_EXPORT10 = (
+        "\n\n💡 Em exportação, códigos de **10 dígitos** são da numeração **Schedule B**, que não é igual "
+        "à do HTS de importação (o DataWeb rejeita números que não existam nela). Tente os **6 primeiros "
+        "dígitos** do código ou procure o número em https://www.census.gov/foreign-trade/schedules/b/."
+        if (eh_export and _gran_export == "10") else ""
+    )
 
     # No modo Mensal, sempre consulta pelo menos alguns anos extras pra
     # trás -- garante que a projeção (janela fixa de 60 meses) sempre
@@ -1020,12 +1038,13 @@ if buscar:
                         + " | ".join(erros_ano[:5])
                     )
             else:
-                st.error(f"Erro ao consultar a API DataWeb: {erro_resp}")
+                st.error(f"Erro ao consultar a API DataWeb: {erro_resp}" + _DICA_EXPORT10)
                 st.stop()
 
         if not dfs_brutos or all(d.empty for d in dfs_brutos.values()):
             st.warning(
                 "A consulta não retornou dados para esse(s) HTS, período e filtros."
+                + _DICA_EXPORT10
             )
             st.stop()
 
