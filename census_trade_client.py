@@ -80,12 +80,20 @@ def fetch_mode_of_transport(
     -------
     DataFrame vazio (sem erro) se a API não tiver dados (204).
     """
-    if comm_lvl is None:
-        comm_lvl = _inferir_comm_lvl(hts_code)
+    # A Census API não tem nível de 8 dígitos: consulta os HTS-10 que começam
+    # com o código (curinga "*") e depois soma tudo de volta no código de 8.
+    agrupar_hts8 = len(hts_code) == 8 and comm_lvl is None
+    if agrupar_hts8:
+        comm_lvl = "HS10"
+        codigo_api = hts_code + "*"
+    else:
+        codigo_api = hts_code
+        if comm_lvl is None:
+            comm_lvl = _inferir_comm_lvl(hts_code)
 
     params = {
         "get": ",".join(FIELDS),
-        "I_COMMODITY": hts_code,
+        "I_COMMODITY": codigo_api,
         "time": _time_param(year_start, year_end),
         "key": api_key,
     }
@@ -151,7 +159,18 @@ def fetch_mode_of_transport(
         "Valor Aereo", "Valor Maritimo", "Valor Terrestre", "Valor Total",
     ]
     colunas_presentes = [c for c in colunas_finais if c in df.columns]
-    return df[colunas_presentes].reset_index(drop=True)
+    df = df[colunas_presentes]
+    if agrupar_hts8:
+        df = df.copy()
+        df["HTS"] = hts_code
+        chaves = [c for c in colunas_presentes
+                  if c not in ("Description", "Valor Aereo", "Valor Maritimo",
+                               "Valor Terrestre", "Valor Total")]
+        df = df.groupby(chaves, as_index=False).agg(
+            {"Description": "first", "Valor Aereo": "sum", "Valor Maritimo": "sum",
+             "Valor Terrestre": "sum", "Valor Total": "sum"}
+        )[colunas_presentes]
+    return df.reset_index(drop=True)
 
 
 def fetch_mode_of_transport_multi_hts(
